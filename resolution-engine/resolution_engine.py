@@ -313,13 +313,20 @@ def find_conflicts(new_fact: Fact, existing_facts: list) -> list:
 # Applicability + scoring
 # ---------------------------------------------------------------------------
 
-def precedent_applies(p: Precedent, scope: str, project_id: str, claimant_sources: set) -> bool:
+def precedent_applies(p: Precedent, scope: str, project_id: str, claimant_sources: set,
+                      subject: Optional[str] = None) -> bool:
     """Similarity never decides this. A precedent applies only if it is from the
-    same project, governs this scope (policy domain), and names an authority
-    source that is actually one of this conflict's claimants."""
+    same project, governs this scope (policy domain), names an authority source
+    that is actually one of this conflict's claimants, AND — if the precedent
+    was recorded against a specific subject — that subject matches this
+    conflict's. A precedent with no subject recorded is treated as scope-wide
+    (e.g. an old precedent created before subjects were tracked); a precedent
+    WITH a subject must match exactly, so a 'database-migration' precedent can
+    never resolve a 'launch' conflict just because scope and source line up."""
     return (p.project_id == project_id
             and p.scope == scope
-            and p.winning_source in claimant_sources)
+            and p.winning_source in claimant_sources
+            and (p.subject is None or subject is None or p.subject == subject))
 
 
 def score_facts(facts: list, policy: ResolutionPolicy, scope: str) -> dict:
@@ -351,17 +358,23 @@ def resolve_conflict(conflict_id: str, candidate_facts: list, policy: Resolution
     if len(candidate_facts) < 2:
         raise ValueError("A conflict needs at least two facts.")
     project_id = project_id or candidate_facts[0].project_id
+    subject = candidate_facts[0].subject
+    if any(f.project_id != project_id for f in candidate_facts):
+        raise ValueError("All candidate facts in a conflict must share the same project_id.")
+    if any(f.subject != subject for f in candidate_facts):
+        raise ValueError("All candidate facts in a conflict must share the same subject "
+                          "(they're claims about the same thing, that's what makes them conflict).")
     fact_ids = [f.id for f in candidate_facts]
     by_source = {f.source: f for f in candidate_facts}
     scores = score_facts(candidate_facts, policy, scope)
 
     # 1. Precedents. Candidates arrive ranked by similarity; apply the FIRST one
-    #    that actually applies. Out-of-scope / other-project / non-claimant
-    #    candidates are skipped, not treated as "no precedent found".
+    #    that actually applies. Out-of-scope / other-project / other-subject /
+    #    non-claimant candidates are skipped, not treated as "no precedent found".
     raw = retrieve(describe_conflict(candidate_facts), project_id, as_dicts=True) or []
     for cand in raw:
         p = Precedent.from_candidate(cand)
-        if p is None or not precedent_applies(p, scope, project_id, set(by_source)):
+        if p is None or not precedent_applies(p, scope, project_id, set(by_source), subject):
             continue
         winner = by_source[p.winning_source]
         evidence = f", similarity {p.score:.2f}" if isinstance(p.score, (int, float)) else ""

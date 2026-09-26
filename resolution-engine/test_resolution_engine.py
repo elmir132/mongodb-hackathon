@@ -131,6 +131,41 @@ def test_precedent_whose_authority_source_is_not_a_claimant_is_skipped():
     assert r.applied_precedent_id is None
 
 
+def test_precedent_for_a_different_subject_does_not_apply():
+    # Same scope, same project, same claimant source — but the precedent was
+    # recorded against a different subject entirely. Must not match.
+    store = [Precedent(id="p-migration", project_id=DEFAULT_PROJECT_ID, scope="launch-readiness",
+                       winning_source="engineering", subject="database-migration",
+                       reason="unrelated precedent about a migration, not a launch")]
+    m, e = _pair()  # subject="launch"
+    r = resolve_conflict("c", [m, e], ResolutionPolicy(), make_stub_retriever(store), scope="launch-readiness")
+    assert r.applied_precedent_id is None
+
+
+def test_subjectless_precedent_still_applies_scope_wide():
+    # A precedent with no subject recorded (e.g. an older one, or genuinely
+    # scope-wide) should still be usable — only a *mismatched* subject excludes it.
+    store = [Precedent(id="p-scope-wide", project_id=DEFAULT_PROJECT_ID, scope="launch-readiness",
+                       winning_source="engineering", subject=None, reason="scope-wide rule")]
+    m, e = _pair()
+    r = resolve_conflict("c", [m, e], ResolutionPolicy(), make_stub_retriever(store), scope="launch-readiness")
+    assert r.applied_precedent_id == "p-scope-wide"
+
+
+def test_mixed_project_facts_are_rejected():
+    m = Fact.new("The launch is Friday", "marketing", "launch", project_id="chronicle-demo")
+    e = Fact.new("The launch moved to Monday", "engineering", "launch", project_id="acme-rebrand")
+    with _raises(ValueError):
+        resolve_conflict("c", [m, e], ResolutionPolicy(), make_stub_retriever([]), scope="launch-readiness")
+
+
+def test_mixed_subject_facts_are_rejected():
+    a = Fact.new("The launch is Friday", "marketing", "launch")
+    b = Fact.new("Budget is $10k", "finance", "budget")
+    with _raises(ValueError):
+        resolve_conflict("c", [a, b], ResolutionPolicy(), make_stub_retriever([]), scope="launch-readiness")
+
+
 def test_informational_candidate_without_authority_is_ignored():
     def retriever(conflict_text, project_id, **_):
         return [{"precedent_id": "p-notes", "score": 0.95,
