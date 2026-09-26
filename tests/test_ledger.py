@@ -422,3 +422,32 @@ def test_general_conflict_correction_and_scope_remain_in_existing_engine():
     assert ledger.read('workspace-test')['resolutions']['bug-review']['resolution'] == result['resolution']
     with pytest.raises(ledger.HTTPException):
         resolve(conflict='wrong-property', facts=['bug-0', 'bug-1'], scope='login-bug:owner')
+
+
+def test_bug_triage_authority_reuses_across_bugs_but_not_other_properties():
+    workspace()
+    state = ledger.public(ledger.read('workspace-test'))
+    for bug in ('signup', 'checkout'):
+        for source, component in [('QA', 'frontend'), ('Backend', 'backend')]:
+            state['facts'].append({'id': f'{bug}-{source}', 'subject': f'{bug} bug', 'scope': 'bug triage',
+                                  'attribute': 'component', 'source': source, 'value': f'{component} issue',
+                                  'text': f'{source} says the {bug} bug is a {component} issue.'})
+    ledger.save(ledger.SaveRequest(workspaceId='workspace-test', state=state))
+    original = resolve(conflict='signup-review', facts=['signup-QA', 'signup-Backend'], scope='bug-triage:component')
+    learned = ledger.correct(ledger.CorrectRequest(workspaceId='workspace-test', conflictId='signup-review',
+        requestId='signup-answer', factId='signup-Backend', reason='Backend owns bug triage.', rememberAuthority=True))
+    assert learned['lesson']['scope'] == 'bug-triage:component'
+    assert learned['lesson']['subject'] is None
+    reused = resolve(conflict='checkout-review', facts=['checkout-QA', 'checkout-Backend'], scope='bug-triage:component')
+    assert reused['resolution']['selected_fact_id'] == 'checkout-Backend'
+    assert reused['resolution']['applied_precedent_id'] == learned['lesson']['id']
+    assert ledger.read('workspace-test')['resolutions']['signup-review']['resolution'] == original['resolution']
+    state = ledger.public(ledger.read('workspace-test'))
+    for source, owner in [('QA', 'Maya'), ('Backend', 'Alex')]:
+        state['facts'].append({'id': f'owner-{source}', 'subject': 'checkout bug', 'scope': 'bug triage',
+                              'attribute': 'owner', 'source': source, 'value': owner,
+                              'text': f'{source} says the checkout bug owner is {owner}.'})
+    ledger.save(ledger.SaveRequest(workspaceId='workspace-test', state=state))
+    different = resolve(conflict='owner-review', facts=['owner-QA', 'owner-Backend'], scope='bug-triage:owner')
+    assert different['resolution']['applied_precedent_id'] is None
+    assert different['resolution']['selected_fact_id'] is None

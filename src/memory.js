@@ -254,8 +254,9 @@ export async function processPrompt(previous, prompt, source, persist, generate,
     const comments = (modelResult?.reviewNotes || []).map(note => note.comment).join(' ');
     const task = reviewTask(prompt, attachments);
     const transformed = task.sourceTask && modelResult?.answer?.trim();
+    const echoedUpdate = incoming.length && modelResult?.answer?.trim() === prompt.trim();
     const prose = lookup ? '' : task.sourceTask ? (transformed ? `**${task.label}:**\n\n${transformed}` : 'The requested text could not be produced. Please try again.')
-      : (conflict || savedReview || task.kind === 'review' || incoming.length || ['partial', 'unavailable'].includes(analysis.status)) ? comments : modelResult?.answer;
+      : (conflict || savedReview || task.kind === 'review' || echoedUpdate || ['partial', 'unavailable'].includes(analysis.status)) ? comments : modelResult?.answer;
     const factual = !summary && incoming.length ? `Recorded ${incoming.map(fact => `**${fact.subject}**: ${fact.value} (${sourceLabel(fact)})`).join('; ')}.`
       : !summary && candidates.length && selected && !attachments.length ? `Recorded ${subject}: **${selected.value}** (${sourceLabel(selected)}).` : '';
     answer = (task.sourceTask ? [prose, summary] : [summary || factual, prose]).filter(Boolean).join('\n\n')
@@ -263,7 +264,11 @@ export async function processPrompt(previous, prompt, source, persist, generate,
     if (analysis.status === 'unavailable' || analysis.status === 'partial') {
       const omitted = analysis.coverage?.omitted || [];
       const excerpts = omitted.slice(0, 3).map(item => `> ${item.quote.replaceAll('\n', ' ')}`).join('\n\n');
-      answer += `\n\n${omitted.length || analysis.status === 'partial' ? 'Memory checking was incomplete: some possible claims were not validated.' : 'Memory checking was unavailable for this reply.'} ${incoming.length ? 'Only the validated claims were saved.' : 'No new facts were saved.'}${excerpts ? `\n\nNot validated:\n\n${excerpts}\n\nI could not validate these passages. Try the check again or clarify any ambiguous subject, source, or value.` : ' Please retry the memory check.'}`;
+      const warning = omitted.length || analysis.status === 'partial' && analysis.rejected?.claims ? 'Memory checking was incomplete: some possible claims were not validated.'
+        : analysis.coverage?.uncompared?.length ? 'Memory checking was incomplete: some claim comparisons remain uncertain.'
+        : analysis.status === 'partial' ? 'Memory checking was incomplete: some proposed relationships could not be validated.'
+        : 'Memory checking was unavailable for this reply.';
+      answer += `\n\n${warning} ${incoming.length ? 'Only the validated claims were saved.' : 'No new facts were saved.'}${excerpts ? `\n\nNot validated:\n\n${excerpts}\n\nI could not validate these passages. Try the check again or clarify any ambiguous subject, source, or value.` : analysis.coverage?.uncompared?.length ? '' : ' Please retry the memory check.'}`;
     }
     if (analysis.coverage?.uncompared?.length) answer += `\n\nI retained the claims but could not establish whether they disagree about ${[...new Set(analysis.coverage.uncompared.map(pair => pair.subject))].join(', ')}. No source of truth was selected for those comparisons.`;
     if (conflictRecords.length) answer += '\n\n' + conflictRecords.slice(1).map(group => decisionSummary({ ...group, savedReview: matchingConflictReview(state, group.candidates) })).join('\n\n');

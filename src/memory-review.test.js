@@ -420,3 +420,12 @@ test('new status contradictions have peer relationships even when neither claim 
   const {turn}=await run(initial([]),quotes.join(' '),fx);
   assert.equal(turn.conflict,true); assert.ok(turn.conflictQuestion); assert.equal(fx.calls.filter(c=>c==='resolve').length,1);
 });
+
+test('one proven pair cannot authorize choosing among additional unexamined claims',async()=>{
+  const quotes=['QA says the login bug is a frontend issue.','Backend says the login bug is a backend issue.','Ops says the login bug is an infrastructure issue.'];
+  const claims=quotes.map((quote,i)=>claim(quote,{ref:`c${i+1}`,subject:'login bug',attribute:'component',scope:'login bug',value:['frontend issue','backend issue','infrastructure issue'][i]}));
+  const fx=fixture(raw(claims,[{claimRef:'c1',targetClaimRef:'c2',type:'contradiction'}]));
+  const {turn}=await run(initial([]),quotes.join(' '),fx);
+  assert.equal(turn.memoryAnalysis.status,'partial'); assert.equal(turn.selected,null);
+  assert.ok(!fx.calls.includes('resolve')); assert.match(turn.answer,/could not establish whether they disagree/);
+});

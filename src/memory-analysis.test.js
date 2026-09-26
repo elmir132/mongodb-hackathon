@@ -356,3 +356,17 @@ test('model-declared unreviewed evidence is retained only when its passage is gr
   const result=validateMemoryAnalysis({...analysis([]),unreviewed:[{sourceRef:'prompt',quote:prompt,reason:'Ambiguous policy'},{sourceRef:'prompt',quote:'Invented passage.',reason:'Missing'}]},context(prompt,[]));
   assert.equal(result.status,'unavailable'); assert.deepEqual(result.coverage.omitted,[{sourceRef:'prompt',quote:prompt}]);
 });
+
+test('reporting clauses tolerate semicolons, conjunctions, and unpunctuated line breaks', () => {
+  const first='QA says the login bug is a frontend issue';
+  const second='Backend says the login bug is a backend issue.';
+  const claims=[first,second].map((quote,i)=>claim(quote,{ref:`c${i+1}`,subject:'login bug',attribute:'component',scope:'login bug',value:i?'backend issue':'frontend issue'}));
+  for (const separator of ['; ', ', but ', ' and ', '\n']) {
+    const prompt=first+separator+second;
+    const result=validateMemoryAnalysis(analysis(claims,[{claimRef:'c1',targetClaimRef:'c2',type:'contradiction'}]),context(prompt,[]));
+    assert.equal(result.status,'validated',prompt); assert.deepEqual(result.claims.map(c=>c.source),['QA','Backend']);
+    assert.equal(result.coverage.checked,2);
+  }
+  const hypothetical='If '+first+'; '+second;
+  assert.equal(validateMemoryAnalysis(analysis([claims[1]]),context(hypothetical,[])).claims.length,0,'splitting must not strip a conditional prefix');
+});

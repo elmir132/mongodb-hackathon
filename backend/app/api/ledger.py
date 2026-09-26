@@ -215,7 +215,7 @@ def validate_claim_provenance(state):
             # Both slices stay verbatim, including their internal line wraps;
             # only whitespace may separate the adjacent context and claim.
             adjacent = isinstance(context, str) and bool(context.strip()) and re.search(
-                re.escape(context) + r'(?:\s+|;\s*|,?\s+(?:but|while|whereas)\s+)' + re.escape(quote), text, re.I)
+                re.escape(context) + r'(?:\s+|;\s*|,?\s+(?i:and|but|while|whereas)\s+)' + re.escape(quote), text)
             if not reporter or not adjacent:
                 raise HTTPException(400, 'Shorthand claims require the immediately preceding source passage.')
 

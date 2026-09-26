@@ -99,7 +99,7 @@ export function memoryEvidence(state, incoming, analysis) {
         const comparisonIncomplete = !deterministic && candidates.some((left, i) => candidates.slice(i + 1).some(right =>
           value(left) !== value(right) && !groupRelations.some(r => r.type !== 'uncertain'
             && (r.newFactId === left.id && r.factId === right.id || r.newFactId === right.id && r.factId === left.id))));
-        const conflict = contradicted || (deterministic && new Set(candidates.map(value)).size > 1);
+        const conflict = !comparisonIncomplete && (contradicted || (deterministic && new Set(candidates.map(value)).size > 1));
         groups.push({ subject: candidates[0].subject, candidates, conflict, comparisonIncomplete,
           revision: currentRelations.some(r => r.type === 'revision'), relations: groupRelations });
       }

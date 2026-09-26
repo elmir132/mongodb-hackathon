@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import AutoTextarea from './auto-textarea.jsx';
 import { sourceLabel } from './memory.js';
-import { canRememberAuthority, authorityLabel, fallbackConflictQuestion } from './conflict-review.js';
+import { canRememberAuthority, authorityLabel, authorityCoverage, fallbackConflictQuestion } from './conflict-review.js';
 import './conflict-question.css';
 
 export default function ConflictQuestion({ turn, busy, error, onAnswer, onDismiss }) {
@@ -29,7 +29,7 @@ export default function ConflictQuestion({ turn, busy, error, onAnswer, onDismis
         </label>)}
         <label className="conflict-option"><input type="radio" name={`conflict-choice-${turn.id}`} value="unresolved" checked={choice === 'unresolved'} onChange={() => setChoice('unresolved')}/><span><strong>Leave unresolved</strong><span className="conflict-source">I need more information</span></span></label>
       </fieldset>
-      {canRemember && <label className="conflict-remember"><input type="checkbox" checked={remember} onChange={event => setRemember(event.target.checked)} disabled={busy}/><span>{authorityLabel(turn, selected)}</span></label>}
+      {canRemember && <label className="conflict-remember"><input type="checkbox" checked={remember} onChange={event => setRemember(event.target.checked)} disabled={busy}/><span>{authorityLabel(turn, selected)} <span>{authorityCoverage(selected)}</span></span></label>}
       <label className="sr-only" htmlFor={reasonId}>Additional context</label>
       <AutoTextarea id={reasonId} value={reason} onChange={event => setReason(event.target.value)} disabled={busy} placeholder="Add context (optional)…" rows={1}/>
       {error && <p className="storage-error" role="alert">{error}</p>}

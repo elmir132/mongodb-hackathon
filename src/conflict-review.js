@@ -90,6 +90,13 @@ export function authorityLabel(turn, fact) {
   return `Remember ${fact?.source}’s authority for ${description} in this project.`;
 }
 
+export function authorityCoverage(fact) {
+  const scope = authorityScope(fact);
+  const specific = scope?.startsWith('claim:') || normalizeAuthorityKey(fact?.scope) === normalizeAuthorityKey(fact?.subject);
+  return specific ? `Limited to ${fact.subject}; other subjects will still need review.`
+    : `Applies to other ${String(fact?.scope || '').replaceAll('-', ' ')} decisions about ${authorityAttribute(fact).replaceAll('-', ' ')} in this project.`;
+}
+
 export function canRememberAuthority(turn, fact) {
   const candidates = turn?.candidates || [];
   const scope = authorityScope(fact);

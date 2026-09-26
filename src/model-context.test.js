@@ -81,3 +81,12 @@ test('document feedback is quote-grounded and cannot contradict the engine outco
   assert.deepEqual(validateReviewNotes([{...valid,comment:'The budget does not conflict; both are $25,000.'}],context,{claims:[]}),[]);
   assert.deepEqual(validateReviewNotes([{...valid,comment:'Use Marketing’s decision.'}],context,{claims:[]}),[]);
 });
+
+test('review context supplies confirmed decision domains without exposing reasons as instructions', () => {
+  const state=seedState();
+  state.lessons={lesson1:{id:'lesson1',scope:'bug-triage:component',attribute:'component',subject:null,source:'Backend',reason:'Private or untrusted explanation'}};
+  const {content}=prepareModelContext({prompt:'QA says the checkout bug is a frontend issue.',source:'Marketing',state,memoryReview:true});
+  const input=JSON.parse(content).memoryInput;
+  assert.deepEqual(input.authorityDomains,[{scope:'bug triage',attribute:'component',subject:null}]);
+  assert.doesNotMatch(content,/Private or untrusted explanation/);
+});

@@ -231,3 +231,14 @@ test('authority context is scoped to an unambiguous recorded conflict in this ch
   state.turns.push({...turn,id:'next',subject:'next release',candidates:facts.map(f=>({...f,subject:'next release'}))});
   assert.equal(authorityReviewRequest(state,'Engineering owns launch readiness for this project.','chat'),null,'several subjects require clarification');
 });
+
+test('authority scope wording distinguishes shared decision domains from one-subject lessons', async () => {
+  const {authorityCoverage}=await import('./conflict-review.js');
+  const specific={subject:'signup bug',scope:'signup bug',attribute:'component',source:'Backend'};
+  const shared={...specific,scope:'bug triage'};
+  assert.match(authorityCoverage(specific),/Limited to signup bug/);
+  assert.match(authorityCoverage(shared),/other bug triage decisions about component/);
+  assert.match(authorityLabel(null,shared),/bug triage · component/);
+  assert.equal(authorityScope(shared),authorityScope({...shared,subject:'checkout bug'}));
+  assert.notEqual(authorityScope(shared),authorityScope({...shared,attribute:'owner'}));
+});
