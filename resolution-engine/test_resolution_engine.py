@@ -186,6 +186,48 @@ def test_unresolved_when_no_authority_and_equal_recency():
     assert "Unresolved" in r.explanation
 
 
+def test_authority_matching_is_case_insensitive():
+    # Found via real HTTP testing: the demo frontend sends "Marketing" /
+    # "Engineering" (capitalized), engine tests and demo_starting_policy() use
+    # lowercase. A case-sensitive match silently drops authority for both
+    # sources and falls through to recency-only, picking the wrong winner with
+    # no error. This must resolve exactly like the lowercase demo does.
+    policy = demo_starting_policy()  # ranking is ["marketing", "engineering"]
+    m = Fact.new("The launch is Friday", "Marketing", "launch", timestamp=at(0))
+    e = Fact.new("The launch moved to Monday", "Engineering", "launch", timestamp=at(5))
+    r = resolve_conflict("c", [m, e], policy, make_stub_retriever([]), scope="launch-readiness")
+    assert r.selected_fact_id == m.id, "capitalized 'Marketing' must still match the ranked 'marketing'"
+
+
+def test_correction_ranking_does_not_duplicate_across_casing():
+    # Found via real end-to-end HTTP testing: starting policy has lowercase
+    # "marketing"/"engineering", but the real correction request uses
+    # "Marketing"/"Engineering" (capitalized). The new ranking must end up as
+    # two clean entries, not four duplicated-by-case ones.
+    policy = demo_starting_policy()  # ["marketing", "engineering"]
+    store: list = []
+    m = Fact.new("The launch is Friday", "Marketing", "launch", timestamp=at(0))
+    e = Fact.new("The launch moved to Monday", "Engineering", "launch", timestamp=at(5))
+    r = resolve_conflict("c", [m, e], policy, make_stub_retriever(store), scope="launch-readiness")
+    corr = apply_correction(r, [m, e], e.id, "Engineering owns launch readiness.", policy, store)
+    ranking = corr.policy_update.after["rules"][0]["authority_ranking"]
+    assert len(ranking) == 2, f"expected 2 entries, got {ranking!r}"
+    assert ranking[0] == "Engineering"
+    assert ranking[1].lower() == "marketing"
+
+
+def test_precedent_application_is_case_insensitive():
+    # Same bug, second location: a precedent's winning_source vs. the live
+    # conflict's fact.source.
+    store = [Precedent(id="p-eng", project_id=DEFAULT_PROJECT_ID, scope="launch-readiness",
+                       winning_source="engineering", losing_source="marketing", reason="eng owns launch")]
+    m = Fact.new("The launch is Friday", "Marketing", "launch")
+    e = Fact.new("The launch moved to Monday", "Engineering", "launch")
+    r = resolve_conflict("c", [m, e], ResolutionPolicy(), make_stub_retriever(store), scope="launch-readiness")
+    assert r.applied_precedent_id == "p-eng"
+    assert r.selected_fact_id == e.id
+
+
 def test_ranked_authority_dominates_recency():
     policy = ResolutionPolicy(rules=[PolicyRule("launch-readiness", ["engineering", "marketing"])])
     e = Fact.new("The launch moved to Monday", "engineering", "launch", timestamp=at(0))

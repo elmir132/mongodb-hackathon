@@ -89,11 +89,20 @@ class ResolutionPolicy:
         return next((r for r in self.rules if r.scope == scope), None)
 
     def authority_score(self, source: str, scope: str) -> float:
+        # Source names arrive from different callers with different casing
+        # (engine tests use "marketing", the real frontend sends "Marketing").
+        # Match case-insensitively rather than trusting every caller to agree
+        # on a convention — a source that silently fails to match falls
+        # through to recency-only, which is a much harder bug to notice.
         rule = self.rule_for(scope)
-        if rule is None or source not in rule.authority_ranking:
+        if rule is None:
             return 0.0
-        n = len(rule.authority_ranking)
-        return (n - rule.authority_ranking.index(source)) / n
+        ranking_lower = [s.lower() for s in rule.authority_ranking]
+        source_lower = source.lower()
+        if source_lower not in ranking_lower:
+            return 0.0
+        n = len(ranking_lower)
+        return (n - ranking_lower.index(source_lower)) / n
 
     def set_rule(self, scope: str, authority_ranking: list) -> None:
         rule = self.rule_for(scope)
@@ -323,9 +332,11 @@ def precedent_applies(p: Precedent, scope: str, project_id: str, claimant_source
     (e.g. an old precedent created before subjects were tracked); a precedent
     WITH a subject must match exactly, so a 'database-migration' precedent can
     never resolve a 'launch' conflict just because scope and source line up."""
+    # Case-insensitive: see the same normalization note in authority_score().
+    claimant_sources_lower = {s.lower() for s in claimant_sources}
     return (p.project_id == project_id
             and p.scope == scope
-            and p.winning_source in claimant_sources
+            and p.winning_source.lower() in claimant_sources_lower
             and (p.subject is None or subject is None or p.subject == subject))
 
 
@@ -366,6 +377,7 @@ def resolve_conflict(conflict_id: str, candidate_facts: list, policy: Resolution
                           "(they're claims about the same thing, that's what makes them conflict).")
     fact_ids = [f.id for f in candidate_facts]
     by_source = {f.source: f for f in candidate_facts}
+    by_source_lower = {f.source.lower(): f for f in candidate_facts}  # case-insensitive lookup
     scores = score_facts(candidate_facts, policy, scope)
 
     # 1. Precedents. Candidates arrive ranked by similarity; apply the FIRST one
@@ -376,7 +388,7 @@ def resolve_conflict(conflict_id: str, candidate_facts: list, policy: Resolution
         p = Precedent.from_candidate(cand)
         if p is None or not precedent_applies(p, scope, project_id, set(by_source), subject):
             continue
-        winner = by_source[p.winning_source]
+        winner = by_source_lower[p.winning_source.lower()]
         evidence = f", similarity {p.score:.2f}" if isinstance(p.score, (int, float)) else ""
         return Resolution(
             conflict_id=conflict_id, project_id=project_id, scope=scope,
@@ -450,11 +462,24 @@ def apply_correction(previous: Resolution, candidate_facts: list, correct_fact_i
 
     before = policy.snapshot()
 
+    # Build the new ranking case-insensitively so it can't accumulate duplicate
+    # entries that only differ by case (e.g. a lowercase demo seed value vs.
+    # "Engineering" as typed by the real frontend) — that corrupted the ranking
+    # list in testing, and this exact list is what Max's before/after policy
+    # panel displays, so a duplicate/garbage entry here would be visible on
+    # screen even though authority_score()'s case-insensitive lookup still
+    # happened to resolve correctly underneath it.
     existing = list(policy.rule_for(scope).authority_ranking) if policy.rule_for(scope) else []
-    new_ranking = [winner.source] + [s for s in existing if s != winner.source]
+    new_ranking = [winner.source]
+    seen_lower = {winner.source.lower()}
+    for s in existing:
+        if s.lower() not in seen_lower:
+            new_ranking.append(s)
+            seen_lower.add(s.lower())
     for f in others:
-        if f.source not in new_ranking:
+        if f.source.lower() not in seen_lower:
             new_ranking.append(f.source)
+            seen_lower.add(f.source.lower())
     policy.version += 1
     policy.set_rule(scope, new_ranking)
     after = policy.snapshot()

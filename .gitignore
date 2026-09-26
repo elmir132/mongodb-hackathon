@@ -44,3 +44,4 @@ Thumbs.db
 .firecrawl/
 *.log
 data/local/
+backend-venv/
