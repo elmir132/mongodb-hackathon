@@ -17,3 +17,8 @@ build/
 
 # OS
 .DS_Store
+
+# Local demo and research artifacts
+.firecrawl/
+.env.*
+!.env.example
