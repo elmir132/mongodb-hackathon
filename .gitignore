@@ -1,8 +1,16 @@
 # Python
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
+.Python
 .venv/
 venv/
+ENV/
+env/
+*.egg-info/
+.installed.cfg
+*.egg
 
 # Node
 node_modules/
@@ -13,12 +21,26 @@ build/
 # Env / secrets — never commit these
 .env
 .env.local
+.env.*.local
 *.pem
+.env.*
+!.env.example
 
-# OS
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
 .DS_Store
+Thumbs.db
 
 # Local demo and research artifacts
 .firecrawl/
-.env.*
-!.env.example
+*.log
+data/local/

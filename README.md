@@ -20,10 +20,10 @@ Targets: **Long Horizon Engineering** (primary) and **Recursive Harnessing** (se
 
 | Location | Owner | Status / responsibility |
 | --- | --- | --- |
-| `resolution-engine/` | Elmir | Standalone Python conflict resolution, correction handling, and tests, preserved from GitHub. |
+| `resolution-engine/` | Elmir | Standalone Python conflict resolution, correction handling, and tests. |
 | `src/`, `server/`, root Vite setup | Maxime | Current frontend and local model bridge. The frontend currently lives here, rather than the initially proposed `frontend/` folder. |
 | `backend/` (planned) | Sahil | Atlas persistence, APIs, event transport, and hosting retrieval. |
-| `retrieval/` (planned on main) | Danny | Voyage/Atlas precedent retrieval, then orchestration. Separate branch work is not implicitly merged into main. |
+| `retrieval/` | Danny | Voyage AI embeddings + Atlas-ready precedent retrieval (merged). See [INTEGRATION.md](INTEGRATION.md). |
 
 Run the standalone resolution engine and its tests:
 
@@ -33,6 +33,20 @@ python3 resolution-engine/test_resolution_engine.py
 ```
 
 The Python engine and terminal's temporary local adapter are not wired together yet.
+
+## Precedent retrieval (Danny)
+
+```sh
+pip install -r requirements.txt
+pytest -q
+python scripts/demo_retrieval.py
+```
+
+- [retrieval/README.md](retrieval/README.md) — local run instructions
+- [INTEGRATION.md](INTEGRATION.md) — contract for Sahil & Elmir (`find_matching_precedent`)
+- [ATLAS_SETUP.md](ATLAS_SETUP.md) — Vector Search schema & index notes
+
+Copy `.env.example` → `.env` for `VOYAGE_API_KEY` (never commit secrets).
 
 ## Local terminal demo
 
@@ -64,7 +78,7 @@ API keys are sent only to the local connection endpoint and retained in server m
 
 Real Codex text generation and browser-local writes. Facts, notes, turns, corrections, and replay events survive reloads in this browser. **Reset demo** clears this demo’s records and restores the seeded Monday claim. A failed write or model call is not represented as a successfully saved answer; earlier successful fact writes may remain.
 
-Atlas, Voyage, Vector Search, the team's production resolution engine, and backend streaming are not connected. The replay shows recorded application operations at an illustrative pace, not model-internal reasoning. Local policy rules are a provisional adapter, not a competing production implementation.
+Atlas, Voyage, Vector Search, the team's production resolution engine, and backend streaming are not connected end-to-end yet. Retrieval code lives in `retrieval/` for Sahil to host. The replay shows recorded application operations at an illustrative pace, not model-internal reasoning. Local policy rules are a provisional adapter, not a competing production implementation.
 
 - `src/journey.jsx`: terminal, model connection UI, and optional replay.
 - `src/memory.js`: provisional local memory/trace adapter.
