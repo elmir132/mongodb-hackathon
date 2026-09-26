@@ -7,6 +7,8 @@ to exercise ranking and project filtering.
 
 from __future__ import annotations
 
+import hashlib
+
 # Lightweight concept features so demo wording variants cluster together.
 _CONCEPT_TERMS: dict[str, tuple[str, ...]] = {
     "launch_ready": (
@@ -47,6 +49,12 @@ _CONCEPT_TERMS: dict[str, tuple[str, ...]] = {
 }
 
 
+def _stable_token_hash(token: str) -> int:
+    """Process-stable hash (unlike Python's salted hash())."""
+    digest = hashlib.md5(token.encode("utf-8")).digest()
+    return int.from_bytes(digest[:8], "big", signed=False)
+
+
 def offline_embed(text: str, dims: int = 96) -> list[float]:
     """Deterministic feature embedding for tests and offline demos."""
     if dims < 32:
@@ -70,8 +78,8 @@ def offline_embed(text: str, dims: int = 96) -> list[float]:
 
     # Token hashing fills the remaining dimensions.
     for token in tokens:
-        h = hash(token)
-        idx = 16 + (abs(h) % (dims - 16))
+        h = _stable_token_hash(token)
+        idx = 16 + (h % (dims - 16))
         sign = 1.0 if (h & 1) == 0 else -1.0
         vec[idx] += sign
 

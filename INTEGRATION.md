@@ -13,19 +13,21 @@ from retrieval import find_matching_precedent, load_seed_store, embed_text
 # Until Atlas has real precedents with embeddings:
 load_seed_store(use_voyage=True)  # needs VOYAGE_API_KEY
 
-candidates = find_matching_precedent(conflict_text, project_id)
-# or JSON-friendly for HTTP APIs:
 candidates = find_matching_precedent(conflict_text, project_id, as_dicts=True)
 ```
+
+Prefer **`as_dicts=True`** for HTTP/JSON and for Elmir's `Precedent.from_candidate`.
 
 ### INPUT
 
 | Arg | Type | Meaning |
 |-----|------|---------|
 | `conflict_text` | `str` | Natural-language description of the conflicting claims |
-| `project_id` | `str` | Project scope — **required filter**; other projects must not leak in |
+| `project_id` | `str` | Project scope — **required**, case-sensitive exact match after strip |
 
-Optional kwargs: `top_k`, `min_score`, `as_dicts=True`.
+Optional kwargs: `top_k` (≥ 1), `min_score`, `as_dicts=True`.
+
+Whitespace around `conflict_text` / `project_id` is stripped automatically.
 
 ### OUTPUT
 
@@ -40,7 +42,10 @@ A list of candidates (highest similarity first). Each item:
     "topic": "launch-readiness",
     "subject": "launch",
     "tags": ["launch-readiness", "engineering-authority", "deploy"],
-    "constraints": { "authority_source": "engineering" }
+    "constraints": {
+      "authority_source": "engineering",
+      "overruled_source": "marketing"
+    }
   },
   "reason": "Human override: when marketing and engineering disagree...",
   "text": "Engineering owns launch-readiness decisions.",
@@ -55,7 +60,7 @@ A list of candidates (highest similarity first). Each item:
 | `scope` | Project / topic / tags / constraints for Elmir's applicability check |
 | `reason` | Stored human/system reasoning from the correction |
 | `text` | Canonical precedent statement |
-| `metadata` | Optional extras (policy version at creation, etc.) |
+| `metadata` | Optional extras (`policy_version`, `created_from_conflict_id`, etc.) |
 
 Empty list `[]` when nothing useful is in-scope.
 
@@ -71,18 +76,47 @@ Empty list `[]` when nothing useful is in-scope.
 
 ---
 
+## Status with Elmir on `main` (updated)
+
+Elmir's resolution engine on `main` **already matches this contract**:
+
+- Injects a retriever with Danny's signature:  
+  `retrieve(conflict_text, project_id, as_dicts=True)`
+- Adapts candidates via `Precedent.from_candidate`
+- Treats `score` as evidence only; applicability is decided in the engine
+
+### Vocabulary mapping (keep these field names stable)
+
+| Danny retrieval field | Elmir engine meaning |
+|-----------------------|----------------------|
+| `scope.topic` | policy domain / `scope` (e.g. `launch-readiness`) |
+| `scope.subject` | `Fact.subject` (e.g. `launch`) |
+| `constraints.authority_source` | `winning_source` |
+| `constraints.overruled_source` | `losing_source` |
+| `score` | similarity evidence only |
+
+Shared demo project id: **`chronicle-demo`**.
+
+At integration, Sahil/Elmir pass `retrieval.find_matching_precedent` into  
+`resolve_conflict(..., retrieve=...)` instead of `make_stub_retriever`.
+
+---
+
 ## Hosting notes for Sahil
 
 1. Install deps: `pip install -r requirements.txt`
 2. Set env vars from `.env.example` (`VOYAGE_API_KEY`, later `MONGODB_URI`, etc.)
    - This library reads `os.environ` only. Load `.env` in your host process
      (e.g. `python-dotenv`) or set variables in the process environment.
-3. Call `find_matching_precedent` from your API handler (keep credentials off the frontend)
+3. Call `find_matching_precedent(..., as_dicts=True)` from your API handler
+   (keep credentials off the frontend)
 4. **Memory backend is empty until seeded.** With default `PRECEDENT_STORE=memory`,
    you must call `load_seed_store(use_voyage=True)` (or `configure_store(...)`)
    or every search returns `[]`.
 5. Switch `PRECEDENT_STORE=atlas` once the vector index exists (see `ATLAS_SETUP.md`)
    and precedents are stored **with embeddings**.
+6. When persisting corrections, use Elmir's `Precedent.to_stored_document()` shape
+   and fill `embedding` via `embed_text(..., input_type="document")` (or `embed_documents`).
 
 Suggested API shape (Sahil owns the HTTP layer):
 
@@ -91,45 +125,6 @@ POST /precedents/search
 { "conflict_text": "...", "project_id": "chronicle-demo", "top_k": 5 }
 → { "candidates": [ ... ] }
 ```
-
----
-
-## Wiring note for Elmir (important)
-
-Elmir's current stub on `main` is:
-
-```python
-get_matching_precedent(fact_text, topic, precedent_store) -> Optional[Precedent]
-```
-
-Danny's module (planning PDF + this package) is:
-
-```python
-find_matching_precedent(conflict_text, project_id) -> list[candidates]
-```
-
-Differences to reconcile at Phase 2 connection (not a rewrite of either side):
-
-| | Elmir stub today | Danny module |
-|--|------------------|--------------|
-| Name | `get_matching_precedent` | `find_matching_precedent` |
-| Scope key | `topic` + in-memory list | `project_id` (required) |
-| Return | single `Precedent` or `None` | **list** of scored candidates |
-| Applicability | stub exact-topic match | Elmir must check scope / winning_source etc. |
-
-Suggested adapter pattern inside Elmir's resolve path:
-
-```python
-from retrieval import find_matching_precedent
-
-candidates = find_matching_precedent(conflict_text, project_id)
-# Elmir: inspect candidates (score + scope), decide if any applies,
-# map winning_source / reason into Resolution — do not treat top score as auto-apply.
-```
-
-Elmir's rich `Precedent` fields (`winning_source`, `losing_source`, …) should live in
-stored precedent `metadata` / `scope.constraints` when Sahil persists corrections,
-so retrieval can return them for applicability checks.
 
 ---
 

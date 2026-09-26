@@ -137,19 +137,34 @@ def find_matching_precedent(
     if project_id is None or not str(project_id).strip():
         raise ValueError("project_id must be a non-empty string")
 
+    # Normalize so padded IDs/text do not silently miss stored precedents.
+    conflict_text = str(conflict_text).strip()
+    project_id = str(project_id).strip()
+
     cfg = config or RetrievalConfig.from_env()
     active_store = store if store is not None else get_store(cfg)
     k = top_k if top_k is not None else cfg.top_k
+    try:
+        k = int(k)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("top_k must be an integer >= 1") from exc
+    if k < 1:
+        raise ValueError("top_k must be an integer >= 1")
+
     threshold = min_score if min_score is not None else cfg.min_score
+    try:
+        threshold = float(threshold)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("min_score must be a number") from exc
 
     if _embed_fn is not None:
-        query_vec = _embed_fn(str(conflict_text))
+        query_vec = _embed_fn(conflict_text)
     else:
-        query_vec = embed_text(str(conflict_text), input_type="query", config=cfg)
+        query_vec = embed_text(conflict_text, input_type="query", config=cfg)
 
     candidates = active_store.search(
         query_vec,
-        str(project_id),
+        project_id,
         top_k=k,
         min_score=threshold,
     )

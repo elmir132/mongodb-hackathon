@@ -16,8 +16,14 @@ from retrieval.models import PrecedentCandidate, StoredPrecedent
 
 
 def cosine_similarity(a: list[float], b: list[float]) -> float:
-    if not a or not b or len(a) != len(b):
+    if not a or not b:
         return 0.0
+    if len(a) != len(b):
+        raise ValueError(
+            f"Embedding dimension mismatch: query has {len(a)} dims, "
+            f"stored vector has {len(b)} dims. Check VOYAGE_EMBEDDING_MODEL "
+            "matches the model used when precedents were indexed."
+        )
     dot = 0.0
     norm_a = 0.0
     norm_b = 0.0
@@ -97,7 +103,8 @@ class InMemoryPrecedentStore(PrecedentStore):
                 continue
             scored.append(precedent.to_candidate(score=score))
 
-        scored.sort(key=lambda c: c.score, reverse=True)
+        # Secondary key keeps tie order stable across backends/runs.
+        scored.sort(key=lambda c: (-c.score, c.precedent_id))
         return scored[:top_k]
 
 
@@ -156,15 +163,17 @@ class AtlasPrecedentStore(PrecedentStore):
         min_score: float = 0.0,
     ) -> list[PrecedentCandidate]:
         # Atlas Vector Search with pre-filter on project_id.
-        # Index definition must include project_id as a filterable field.
+        # Over-fetch before min_score so we can still fill top_k after filtering
+        # (memory store scores everything first; match that semantics).
+        fetch_limit = max(top_k * 20, 50) if min_score > 0 else top_k
         pipeline = [
             {
                 "$vectorSearch": {
                     "index": self.config.vector_index_name,
                     "path": "embedding",
                     "queryVector": query_embedding,
-                    "numCandidates": max(top_k * 20, 50),
-                    "limit": top_k,
+                    "numCandidates": max(fetch_limit * 4, 50),
+                    "limit": fetch_limit,
                     "filter": {"project_id": {"$eq": project_id}},
                 }
             },
@@ -196,6 +205,8 @@ class AtlasPrecedentStore(PrecedentStore):
             if stored.project_id != project_id:
                 continue
             results.append(stored.to_candidate(score=score))
+            if len(results) >= top_k:
+                break
         return results
 
 

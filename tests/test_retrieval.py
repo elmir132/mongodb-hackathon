@@ -124,6 +124,8 @@ def test_cosine_similarity_basics():
     assert cosine_similarity([1.0, 0.0], [1.0, 0.0]) == pytest.approx(1.0)
     assert cosine_similarity([1.0, 0.0], [0.0, 1.0]) == pytest.approx(0.0)
     assert cosine_similarity([], [1.0]) == 0.0
+    with pytest.raises(ValueError, match="dimension mismatch"):
+        cosine_similarity([1.0, 0.0], [1.0])
 
 
 def test_scope_metadata_present_on_candidates(seeded_store):
@@ -136,6 +138,7 @@ def test_scope_metadata_present_on_candidates(seeded_store):
     assert top.scope.topic == "launch-readiness"
     assert "engineering-authority" in top.scope.tags
     assert top.scope.constraints.get("authority_source") == "engineering"
+    assert top.scope.constraints.get("overruled_source") == "marketing"
 
 
 def test_store_upsert_requires_embedding():

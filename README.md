@@ -2,16 +2,18 @@
 
 Self-healing project memory: facts → conflicts → policy-based resolution → human correction → **precedents** → improved later resolutions, visualized in the Living Ledger.
 
-## Current branch focus
+## Branch: `danny/precedent-retrieval`
 
-`danny/precedent-retrieval` — Danny's **precedent retrieval** module (Phase 1, standalone).
+Danny's **precedent retrieval** module (Voyage AI + Atlas-ready store).
 
-| Teammate | Area | Status on this branch |
-|----------|------|------------------------|
-| Danny | Voyage embeddings + precedent retrieval | **Implemented (standalone)** |
-| Sahil | Atlas, API, hosting retrieval | Not built here |
-| Elmir | Conflict resolution engine | Not built here |
-| Maxime | Living Ledger frontend | Not built here |
+| Folder / area | Owner | Notes |
+|---------------|-------|-------|
+| `retrieval/` | Danny | **This branch** — embeddings + candidate retrieval |
+| `resolution-engine/` | Elmir | On `main` — already adapted to Danny's candidate contract |
+| `backend/` | Sahil | Atlas, API, hosts retrieval |
+| `frontend/` | Maxime | Living Ledger |
+
+See **[INTEGRATION.md](INTEGRATION.md)** for the Sahil/Elmir handoff (including Elmir's vocabulary mapping).
 
 ## Danny module docs
 

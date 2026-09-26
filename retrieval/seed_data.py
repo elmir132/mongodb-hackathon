@@ -30,7 +30,12 @@ def get_seed_precedents() -> list[StoredPrecedent]:
             topic="launch-readiness",
             subject="launch",
             tags=["launch-readiness", "engineering-authority", "deploy"],
-            constraints={"authority_source": "engineering"},
+            # Matches Elmir's Precedents.to_stored_document / from_candidate mapping:
+            # authority_source == winning_source, overruled_source == losing_source
+            constraints={
+                "authority_source": "engineering",
+                "overruled_source": "marketing",
+            },
             metadata={"demo": True, "scenario": "mvp-correction"},
         ),
         StoredPrecedent(
@@ -43,7 +48,10 @@ def get_seed_precedents() -> list[StoredPrecedent]:
             topic="budget",
             subject="vendor-spend",
             tags=["budget", "finance-authority"],
-            constraints={"authority_source": "finance"},
+            constraints={
+                "authority_source": "finance",
+                "overruled_source": "product",
+            },
             metadata={"demo": True},
         ),
         StoredPrecedent(
@@ -67,7 +75,10 @@ def get_seed_precedents() -> list[StoredPrecedent]:
             topic="launch-readiness",
             subject="launch",
             tags=["launch-readiness", "engineering-authority"],
-            constraints={"authority_source": "engineering"},
+            constraints={
+                "authority_source": "engineering",
+                "overruled_source": "marketing",
+            },
             metadata={"demo": True, "project_isolation": True},
         ),
     ]
