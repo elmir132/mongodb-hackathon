@@ -1,0 +1,142 @@
+Chronicle
+Self-Healing Project Memory
+One-line description
+Chronicle is a memory harness that tracks facts contributed by different people on a shared project, resolves conflicting information using an evolving policy, and learns from human corrections, visualized live through the Living Ledger.
+The problem
+Long-running projects accumulate facts from many people, and those facts conflict. One teammate says the launch is Friday; another says it moved to Monday.
+Most systems either retain both claims without resolving the disagreement or apply a fixed rule that never improves. Neither captures how teams learn whose information to trust, under which circumstances, over time.
+Chronicle preserves those lessons and applies them to future conflicts.
+Overall MVP
+The MVP is one complete, working loop:
+New fact → detected conflict → policy-based resolution → human correction → saved precedent and policy update → improved resolution on a new conflict.
+The Living Ledger makes the process visible and shows which facts, policy, and precedent influenced each decision.
+1. Shared project memory
+•     Ingest facts from multiple named sources.
+•     Store facts in MongoDB Atlas with their project, subject, source, timestamp, and supporting text.
+•     Preserve conflicting and superseded claims so the history remains inspectable.
+2. Conflict detection and resolution
+•     Detect incompatible claims about the same subject, attribute, and applicable scope.
+•     Apply a resolution policy stored as data in MongoDB, considering source authority, recency, and applicable precedents.
+•     Use Voyage AI embeddings and Atlas Vector Search to retrieve candidate precedents.
+•     Check whether a precedent applies before using it. Similarity alone does not establish relevance or authority.
+•     Leave a conflict unresolved when the evidence does not justify a choice.
+3. Learning from corrections
+•     Allow a human to override a resolution and provide a short reason.
+•     Store the correction, reasoning, and scope as a precedent.
+•     Update the relevant part of the resolution policy while preserving its previous version.
+•     Apply the learned precedent to a subsequent, different conflict and cite it.
+This is learning through persistent precedents and policy updates. A project-specific exception must not silently become a universal rule.
+4. Living Ledger visualization
+•     Display facts as nodes colored by source.
+•     Visibly connect conflicting claims and show their resolution.
+•     Reflect actual backend events: new facts, conflicts, overrides, precedents, and policy updates.
+•     Let users select a resolution to open a “Why this decision?” panel.
+•     Highlight the facts and precedent that influenced the decision, alongside the policy version and explanation.
+•     After a correction, visibly connect the next resolution to the precedent it used.
+The frontend displays the actual decision trace. Explanations must match the evidence the backend used.
+How the parts fit together
+Component
+Responsibility
+Ingestion
+Capture project facts with stable identifiers and source evidence
+Conflict engine
+Detect contradictions and apply the stored resolution policy
+Precedent retrieval
+Find applicable past corrections for the conflict engine
+Correction flow
+Persist human feedback, create precedents, and version policy updates
+Living Ledger
+Display stored facts, events, relationships, and decision explanations
+
+The conflict engine owns resolution. Retrieval supplies evidence. The frontend displays the resulting decisions.
+Before building independently, the team agrees on shared identifiers and a resolution payload containing:
+•     Project and conflict IDs
+•     Supporting fact IDs
+•     Selected fact or unresolved status
+•     Applied precedent ID, if any
+•     Policy version used
+•     Brief explanation
+Backend events deliver these records to the frontend. Database credentials remain on the backend.
+MVP demo
+•     Marketing says the launch is Friday; engineering says Monday. The graph shows both claims and their conflict.
+•     Chronicle initially selects Friday under its starting policy. The viewer can inspect why.
+•     A human corrects it: engineering owns launch readiness. Chronicle saves the override, creates a precedent, and updates the scoped policy.
+•     A fresh run introduces a different launch-readiness conflict while retaining the saved project memory.
+•     Chronicle resolves it using the learned precedent. Selecting the resolution highlights the earlier correction and explains why it applies.
+The scenario is controlled, but the database writes, retrieval, resolutions, and policy updates run through the real application.
+MVP completion criteria
+Before expanding scope:
+•     The full loop works against the designated Atlas Hackathon Sandbox.
+•     Facts, corrections, precedents, and policies persist across fresh runs.
+•     The graph and explanation panel match the stored decision trace.
+•     A relevant new conflict uses the precedent; an out-of-scope conflict does not blindly reuse it.
+•     The demo can be reset and repeated reliably.
+•     Newly saved precedents are available for retrieval before the next demo step.
+•     A working recording exists, with time reserved for rehearsal and submission.
+These are focused correctness checks. A formal evaluation framework is outside the MVP.
+If we have time
+Start stretch work only after the integrated MVP meets the completion criteria. Add one feature at a time and preserve a working demo.
+Priority 1: Before/after policy comparison
+Show exactly which policy fields changed after a correction.
+•     Demo value: makes learning concrete and inspectable.
+•     Scope: a compact comparison of the relevant fields and policy versions.
+Priority 2: Interactive scoped exception
+Let the presenter introduce a project-specific exception, then show a contrasting case where it does not apply.
+•     Demo value: demonstrates that Chronicle learns within appropriate boundaries.
+•     Scope: one rehearsed exception and one contrasting case. Basic scope correctness remains an MVP requirement.
+Priority 3: Highlight affected decisions
+When a fact changes, highlight a few dependent decisions or outputs that need review.
+•     Demo value: shows the consequences of correcting project memory.
+•     Scope: explicit dependencies and review flags. Automatically repairing those outputs is a separate extension.
+Priority 4: Automatic importance-aware recall
+Infer important project knowledge from ordinary activity, decisions, blockers, dependencies, and corrections, and surface it for a later task.
+•     Demo value: demonstrates useful recall as project history grows, without requiring users to say “remember this.”
+•     Scope: attempt only with substantial integration time remaining. It must use the same resolved facts and policy system.
+A stretch feature belongs in the live demo only when it works end to end and makes the demonstration clearer or more convincing.
+Future work
+•     Learning memory-selection priorities from project activity and feedback.
+•     Formal evaluations of resolution accuracy, important-memory recall, and inappropriate precedent reuse.
+•     Validated repair of downstream plans after facts change.
+•     Large-history scaling, including billion-token archives, supported by measured retrieval quality, latency, and cost.
+These are potential next steps to mention in the pitch, not claims about the MVP.
+Why this fits the theme
+Chronicle targets Long Horizon Engineering by maintaining coherent project memory across changing facts and fresh sessions.
+It also explores Recursive Harnessing because the resolution policy is a versioned artifact that changes in response to human feedback.
+The central proof is changed behavior: a correction persists, influences a later resolution, and remains traceable to its source.
+Tech stack
+•     MongoDB Atlas: facts, conflicts, resolutions, precedents, policy versions, and event history.
+•     Atlas Vector Search: retrieval of candidate precedents.
+•     Voyage AI: embeddings for facts and precedents.
+•     Living Ledger frontend: live graph, correction interaction, and decision explanations.
+•     MongoDB Agent Skills and MCP Server: development assistance connected to the team's Atlas environment.
+Setup prerequisites
+Before project implementation, complete the agreed MongoDB Agent Skills and MCP setup and provision the cluster through the Atlas Hackathon Sandbox link from the organizer's email. Configure Voyage AI next.
+Keep credentials out of the public repository and frontend.
+Team responsibilities
+1. Self-Healing Memory Engine — Elmir: conflict detection; resolution using facts, policy, and candidate precedents; applicability checks (similarity alone does not establish relevance); correction-to-precedent conversion; scoped policy updates; structured explanations. Interface: takes facts + current policy + candidate precedents, returns a resolution with supporting IDs and an explanation; takes a previous resolution + human feedback, returns a new precedent and a proposed policy version. Develops against sample inputs, no database or frontend dependency to start.
+2. Backend & Data Platform — Sahil: Atlas Sandbox connection, collections, and indexes; persistence for facts, conflicts, resolutions, precedents, and policies; API endpoints and input validation; event streaming to the frontend; consistent saving of related changes; hosts and runs Danny's retrieval module server-side. Interface: agreed API requests, responses, and event formats.
+3. Living Ledger frontend — Maxime: the graph, correction controls, the “Why this decision?” panel, and evidence highlighting. Consumes backend snapshots and events, can build against recorded fixtures before the real backend exists. If time allows once this is done and stable: improve Danny's retrieval (better ranking, edge cases), never a competing second implementation, and importance-aware recall (Priority 4), both optional, both switchable off if unstable.
+4. Precedent retrieval, then orchestration — Danny: core, not extra, this is what makes the “improved resolution on a new conflict” step of the MVP loop possible at all. Early: build retrieval, Voyage AI embeddings + Atlas Vector Search query logic, taking a conflict + project ID and returning scored candidate precedents, hand off to Sahil to host. Once the other three pieces have real interfaces: shift into orchestration, the workflow calling ingestion → retrieval → resolution → persistence in order, the correction flow, fresh-run/reset logic, seeded demo scenarios, end-to-end checks, the fallback recording, and the Cerebral Valley submission.
+Team
+Team 419: Elmir, Sahil, Maxime, Danny. [Add full last names before submitting.]
+
+ 
+Appendix: Pipeline
+
+Appendix: Sequencing
+•     Phase 1, now until roughly 12:30 — parallel build, no dependencies. Elmir builds resolution logic against sample data. Sahil sets up Atlas, collections, and API scaffolding. Maxime builds the Living Ledger graph against fake data. Danny builds the retrieval module (Voyage AI embeddings + Atlas Vector Search) standalone, this is core, not extra.
+•     Phase 2, first connection point — protect this block, it's the core loop. Danny hands his retrieval module to Sahil to host. Elmir's resolution engine calls real retrieval instead of sample precedents. Maxime connects the graph to real backend events instead of fixtures.
+•     Phase 3 — Danny shifts into orchestration once the other three have real interfaces: wires ingestion → retrieval → resolution → persistence into one working flow, builds the correction/override path end to end.
+•     Phase 4 — full team tests the complete loop together against the MVP completion criteria: the loop runs on the real Atlas Sandbox, state persists across fresh runs, the graph matches the real decision trace, a relevant new conflict actually uses the precedent, an out-of-scope one doesn't.
+•     Phase 5 checkpoint — only once the MVP criteria are met: Maxime may improve Danny's retrieval (never a competing second version) or attempt importance-aware recall (Priority 4), both switchable off if unstable. Danny builds the seed demo scenario and the fallback recording.
+•     Final block — record the demo video. Submit: confirm the repo is public and all four names are added on Cerebral Valley.
+Appendix: Roles & agent prompts
+Elmir — Self-Healing Memory Engine
+Build the resolution logic for a conflict-resolution harness (any language/framework is fine, expose it as a function or small service). Core object: a Fact with fields text, source, timestamp, topic. Given a new fact plus a list of existing facts on the same topic, detect whether they conflict. If they do, resolve using a weighted policy (source authority, recency), and for now call a stub function get_matching_precedent(fact_text) that returns None, Danny is building the real version in parallel, wire it in once it's ready. Build the correction path: given a previous resolution and human feedback, produce a new precedent object and a proposed policy update. Every resolution should return which rule or precedent it used, plus a short explanation. Develop entirely against sample data, you don't need the database or frontend to start.
+Sahil — Backend & Data Platform
+Set up a MongoDB Atlas Sandbox cluster using the hackathon email link. Create three collections: facts, precedents, resolution_policy. Install the MongoDB Agent Skills and MCP Server to query the database directly from this session. Build API endpoints (POST /facts, POST /override, GET for current state) with input validation, persisting to the collections above. Build a lightweight event stream (polling endpoint or websocket) so the frontend can read live state changes. Once Danny's retrieval module is ready, host and run it server-side as part of this service, agree on its function signature with him ahead of time so the handoff is a small integration, not a rewrite.
+Maxime — Living Ledger frontend
+Build a live graph visualization for a memory harness demo, using fake data for now. Nodes represent facts, colored by source. When two facts conflict, draw a visible link between them highlighted in a warning color. Build the override interaction and a “Why this decision?” panel: selecting a resolution shows the facts, precedent, and policy version that influenced it. When a human overrides a resolution, animate the incorrect node flashing, then show a new precedent node appearing, with connections redrawn. Try v0 first: 'Build a live graph dashboard showing nodes as facts, colored by source, with conflict links, an explanation panel on click, and an animation when a human corrects a resolution.' Get this working against fake data before connecting to Sahil's real API.
+Danny — Precedent retrieval (core, build this first, not extra)
+This is what makes the MVP's 'improved resolution on a new conflict' step possible, without it the harness can never demonstrate that it learned anything. Set up Voyage AI: create an account, generate an API key, install the client. Build embed_text(text) returning an embedding, and a function find_matching_precedent(conflict_text, project_id) that embeds the input and returns the closest candidate precedents with their IDs, similarity scores, and scope metadata, standalone, against a small list of fake precedents, no need to wait on Sahil's database. Hand this function's signature to Sahil early so he can plan the hosting integration. Once it works, hand off to him, then shift into orchestration: wire ingestion → retrieval → resolution → persistence into one real end-to-end flow, build the seeded demo scenario, and prepare the fallback recording.
+
