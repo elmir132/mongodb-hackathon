@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Node
+node_modules/
+.next/
+dist/
+build/
+
+# Env / secrets — never commit these
+.env
+.env.local
+*.pem
+
+# OS
+.DS_Store
