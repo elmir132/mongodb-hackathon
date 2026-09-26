@@ -79,6 +79,16 @@ Index name must match `MONGODB_VECTOR_INDEX` (default `precedent_vector_index`).
 - `filter: { project_id: { $eq: "<project_id>" } }`
 - returns `vectorSearchScore` as `score`
 
+## Score scale caveat (memory vs Atlas)
+
+| Backend | Score meaning (approx.) |
+|---------|-------------------------|
+| `memory` | Raw cosine similarity, typically about `[-1, 1]` (often `~0–1` for related text) |
+| `atlas` | Atlas `vectorSearchScore` for cosine indexes is typically about `[0, 1]` (often `(1 + cosine) / 2`) |
+
+Do **not** assume the same `PRECEDENT_MIN_SCORE` threshold ports cleanly across backends.
+Retune `min_score` after switching to Atlas. Ranking order within a single backend is what matters for the demo.
+
 ## Switchover steps
 
 1. Sahil creates collection + index

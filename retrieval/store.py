@@ -131,6 +131,11 @@ class AtlasPrecedentStore(PrecedentStore):
         ]
 
     def upsert(self, precedent: StoredPrecedent) -> None:
+        if precedent.embedding is None:
+            raise ValueError(
+                f"Precedent {precedent.precedent_id} is missing an embedding; "
+                "Atlas Vector Search requires an embedding field."
+            )
         doc = precedent.to_document()
         self._collection.update_one(
             {"_id": precedent.precedent_id},

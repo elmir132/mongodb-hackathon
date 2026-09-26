@@ -9,6 +9,13 @@ from retrieval.config import MissingCredentialsError, RetrievalConfig
 
 def _get_client(api_key: str | None):
     """Lazy-import voyageai so unit tests can mock without installing side effects."""
+    # Check credentials before importing so missing-key errors stay clear
+    # even when the package is not installed yet.
+    if not api_key:
+        raise MissingCredentialsError(
+            "VOYAGE_API_KEY is not set. Add it to your environment or .env file. "
+            "See .env.example."
+        )
     try:
         import voyageai
     except ImportError as exc:  # pragma: no cover - env issue
@@ -16,11 +23,6 @@ def _get_client(api_key: str | None):
             "voyageai is not installed. Run: pip install -r requirements.txt"
         ) from exc
 
-    if not api_key:
-        raise MissingCredentialsError(
-            "VOYAGE_API_KEY is not set. Add it to your environment or .env file. "
-            "See .env.example."
-        )
     return voyageai.Client(api_key=api_key)
 
 
@@ -90,4 +92,7 @@ def embed_documents(
         kwargs["output_dimension"] = cfg.embedding_dimension
 
     result = vo.embed(**kwargs)
-    return [list(vec) for vec in result.embeddings]
+    embeddings = getattr(result, "embeddings", None)
+    if not embeddings:
+        raise RuntimeError("Voyage embed returned no embeddings")
+    return [list(vec) for vec in embeddings]

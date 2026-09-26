@@ -96,15 +96,21 @@ def test_no_useful_precedents_returns_empty():
 
 
 def test_min_score_filters_weak_matches(seeded_store):
+    all_hits = find_matching_precedent(
+        DEMO_CONFLICT_TEXT,
+        CHRONICLE_DEMO_PROJECT,
+        store=seeded_store,
+        min_score=0.0,
+    )
+    assert all_hits
+    # Threshold above the best score should filter everything out.
     results = find_matching_precedent(
         DEMO_CONFLICT_TEXT,
         CHRONICLE_DEMO_PROJECT,
         store=seeded_store,
-        min_score=0.9999,
+        min_score=all_hits[0].score + 0.01,
     )
-    # Extremely high threshold should typically yield nothing with offline embeds
-    # unless vectors are nearly identical.
-    assert isinstance(results, list)
+    assert results == []
 
 
 def test_rejects_missing_inputs(seeded_store):

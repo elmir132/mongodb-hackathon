@@ -8,19 +8,14 @@ Similarity alone must **not** establish whether a precedent applies.
 ## Function Sahil should host / Elmir should call
 
 ```python
-from retrieval import find_matching_precedent
+from retrieval import find_matching_precedent, load_seed_store, embed_text
+
+# Until Atlas has real precedents with embeddings:
+load_seed_store(use_voyage=True)  # needs VOYAGE_API_KEY
 
 candidates = find_matching_precedent(conflict_text, project_id)
-# or JSON-friendly:
+# or JSON-friendly for HTTP APIs:
 candidates = find_matching_precedent(conflict_text, project_id, as_dicts=True)
-```
-
-Optional helpers:
-
-```python
-from retrieval import embed_text
-
-vector = embed_text("some text")  # Voyage AI embedding
 ```
 
 ### INPUT
@@ -80,9 +75,14 @@ Empty list `[]` when nothing useful is in-scope.
 
 1. Install deps: `pip install -r requirements.txt`
 2. Set env vars from `.env.example` (`VOYAGE_API_KEY`, later `MONGODB_URI`, etc.)
+   - This library reads `os.environ` only. Load `.env` in your host process
+     (e.g. `python-dotenv`) or set variables in the process environment.
 3. Call `find_matching_precedent` from your API handler (keep credentials off the frontend)
-4. Switch `PRECEDENT_STORE=atlas` once the vector index exists (see `ATLAS_SETUP.md`)
-5. Until Atlas is ready, `load_seed_store()` provides a standalone demo dataset
+4. **Memory backend is empty until seeded.** With default `PRECEDENT_STORE=memory`,
+   you must call `load_seed_store(use_voyage=True)` (or `configure_store(...)`)
+   or every search returns `[]`.
+5. Switch `PRECEDENT_STORE=atlas` once the vector index exists (see `ATLAS_SETUP.md`)
+   and precedents are stored **with embeddings**.
 
 Suggested API shape (Sahil owns the HTTP layer):
 
@@ -91,6 +91,45 @@ POST /precedents/search
 { "conflict_text": "...", "project_id": "chronicle-demo", "top_k": 5 }
 → { "candidates": [ ... ] }
 ```
+
+---
+
+## Wiring note for Elmir (important)
+
+Elmir's current stub on `main` is:
+
+```python
+get_matching_precedent(fact_text, topic, precedent_store) -> Optional[Precedent]
+```
+
+Danny's module (planning PDF + this package) is:
+
+```python
+find_matching_precedent(conflict_text, project_id) -> list[candidates]
+```
+
+Differences to reconcile at Phase 2 connection (not a rewrite of either side):
+
+| | Elmir stub today | Danny module |
+|--|------------------|--------------|
+| Name | `get_matching_precedent` | `find_matching_precedent` |
+| Scope key | `topic` + in-memory list | `project_id` (required) |
+| Return | single `Precedent` or `None` | **list** of scored candidates |
+| Applicability | stub exact-topic match | Elmir must check scope / winning_source etc. |
+
+Suggested adapter pattern inside Elmir's resolve path:
+
+```python
+from retrieval import find_matching_precedent
+
+candidates = find_matching_precedent(conflict_text, project_id)
+# Elmir: inspect candidates (score + scope), decide if any applies,
+# map winning_source / reason into Resolution — do not treat top score as auto-apply.
+```
+
+Elmir's rich `Precedent` fields (`winning_source`, `losing_source`, …) should live in
+stored precedent `metadata` / `scope.constraints` when Sahil persists corrections,
+so retrieval can return them for applicability checks.
 
 ---
 
