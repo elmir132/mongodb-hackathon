@@ -1,0 +1,185 @@
+{
+  "date": "2026-09-26",
+  "change": "Compact JSON and one concise quote-grounded review note by default; retain complete claim quotes, validation, and real services. Explicitly exclude unsupported metadata/time-only/unassigned-owner proposals.",
+  "comparisonMethod": "Sequential alternating Codex Luna low-reasoning model-only calls on the same seeded example memo. Initial concise candidate, before adding unsupported-proposal guidance. No service calls or writes in these comparison calls.",
+  "modelOnlyComparison": [
+    {
+      "variant": "baseline",
+      "elapsedMs": 10053,
+      "characters": 1440,
+      "status": "partial",
+      "claims": [
+        {
+          "subject": "launch",
+          "value": "Friday, October 2"
+        }
+      ],
+      "relations": [
+        {
+          "claimRef": "c1",
+          "factId": "fact-seed-engineering",
+          "type": "contradiction"
+        }
+      ],
+      "notes": 1
+    },
+    {
+      "variant": "concise",
+      "elapsedMs": 5698,
+      "characters": 632,
+      "status": "validated",
+      "claims": [
+        {
+          "subject": "launch",
+          "value": "Friday, October 2"
+        }
+      ],
+      "relations": [
+        {
+          "claimRef": "c1",
+          "factId": "fact-seed-engineering",
+          "type": "contradiction"
+        }
+      ],
+      "notes": 1
+    },
+    {
+      "variant": "baseline",
+      "elapsedMs": 8782,
+      "characters": 946,
+      "status": "validated",
+      "claims": [
+        {
+          "subject": "launch",
+          "value": "Friday, October 2"
+        }
+      ],
+      "relations": [
+        {
+          "claimRef": "c1",
+          "factId": "fact-seed-engineering",
+          "type": "contradiction"
+        }
+      ],
+      "notes": 1
+    },
+    {
+      "variant": "concise",
+      "elapsedMs": 6533,
+      "characters": 645,
+      "status": "validated",
+      "claims": [
+        {
+          "subject": "launch",
+          "value": "Friday, October 2"
+        }
+      ],
+      "relations": [
+        {
+          "claimRef": "c1",
+          "factId": "fact-seed-engineering",
+          "type": "contradiction"
+        }
+      ],
+      "notes": 1
+    }
+  ],
+  "intermediateFullRun": {
+    "workspaceId": "workspace-qa-demo-timing-243f9937-7159-4750-beaf-efdc382a8179",
+    "modelMs": 9307,
+    "recordedProcessingMs": 10643,
+    "analysisStatus": "partial",
+    "rejectedClaims": 2,
+    "note": "Not counted as a successful optimized run. Prompt subsequently clarified unsupported proposals; validation was not relaxed."
+  },
+  "finalFullRun": {
+    "workspaceId": "workspace-qa-demo-timing-b6015c8f-6b5f-4f63-a443-0102d0cd3492",
+    "reviewMs": 7542,
+    "correctionMs": 1952,
+    "reviewTiming": {
+      "elapsedMs": 7295,
+      "modelMs": 5994,
+      "modelCalls": 1
+    },
+    "correctionTiming": {
+      "elapsedMs": 1768,
+      "modelMs": 0,
+      "modelCalls": 0
+    },
+    "retrievalReady": true,
+    "calls": [
+      {
+        "phase": "review",
+        "operation": "Saving the original memo",
+        "elapsedMs": 235
+      },
+      {
+        "phase": "review",
+        "operation": "model request",
+        "elapsedMs": 6001
+      },
+      {
+        "phase": "review",
+        "operation": "Saving the incoming fact",
+        "elapsedMs": 251
+      },
+      {
+        "phase": "review",
+        "operation": "resolve",
+        "elapsedMs": 623
+      },
+      {
+        "phase": "review",
+        "operation": "Save the conversation response",
+        "elapsedMs": 178
+      },
+      {
+        "phase": "review",
+        "operation": "Retain completed trace",
+        "elapsedMs": 244
+      },
+      {
+        "phase": "correction",
+        "operation": "correct",
+        "elapsedMs": 1231
+      },
+      {
+        "phase": "correction",
+        "operation": "Writing the human answer",
+        "elapsedMs": 339
+      },
+      {
+        "phase": "correction",
+        "operation": "Save the decision and its evidence",
+        "elapsedMs": 196
+      },
+      {
+        "phase": "correction",
+        "operation": "Retain completed trace",
+        "elapsedMs": 183
+      }
+    ]
+  },
+  "validation": {
+    "unitTests": 127,
+    "passed": 127,
+    "fullRun": "Validated memo conflict, Engineering correction, policy v2 and retrieval readiness; separate isolated QA workspace.",
+    "liveRegressions": [
+      {
+        "scenario": "Security read-only versus Manager admin for same new hire",
+        "modelMs": 5734,
+        "status": "validated",
+        "claims": 2,
+        "reportedSourcesPreserved": true
+      },
+      {
+        "scenario": "Translate attached acquisition budget memo into French",
+        "modelMs": 5805,
+        "status": "validated",
+        "claims": 1,
+        "requestedTransformationPreserved": true
+      }
+    ]
+  },
+  "limitations": "Small samples; no guaranteed latency. Correction time is variable and its improvement is not attributed to this model-prompt change. Replay choreography unchanged."
+}

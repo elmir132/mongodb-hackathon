@@ -26,7 +26,7 @@ test('chats isolate model history and correction targets but share project lesso
   assert.equal(context.state.facts.length, 4);
   state.activeChatId = original;
   ({ state } = await processPrompt(state, 'Engineering owns launch readiness for this project.', 'You', persist));
-  assert.equal(turnsForChat(state).at(-1).selected.value, 'Monday');
+  assert.equal(turnsForChat(state).at(-1).selected.value, 'Monday, October 5th');
   state.activeChatId = 'second';
   const next = await processPrompt(state, 'When is the next release?', 'You', persist);
   assert.equal(next.turn.selected.value, 'Thursday');

@@ -14,7 +14,7 @@ test('a conflict question saves its answer, preserves the original, and teaches 
   let modelCalled = false;
   const result = await processPrompt(original.state, 'Use Engineering’s readiness date.', 'You', persist, () => { modelCalled = true; }, [], { conflictReview: review(original.turn, engineering.id, true) });
   assert.equal(modelCalled, false);
-  assert.equal(result.turn.selected.value, 'Monday');
+  assert.equal(result.turn.selected.value, 'Monday, October 5th');
   assert.equal(result.turn.reviewedConflictId, original.turn.id);
   assert.deepEqual(result.state.turns[0], original.turn);
   assert.equal(result.state.policy, 2);
@@ -121,7 +121,7 @@ test('Maya can revise the saved launch date and answer a fresh source-of-truth q
   assert.equal(first.state.conflictReviews[0].author, 'Maya');
   const lookup = await processPrompt(first.state, 'when will the launch be', 'Marketing', persist, async context => {
     assert.equal(context.decisionContext.status, 'human-confirmed');
-    assert.equal(context.selected.value, 'Monday');
+    assert.equal(context.selected.value, 'Monday, October 5th');
     assert.equal(context.reviewContext, null);
     return { answer: 'Monday, October 5.', conflictQuestion: null };
   });
@@ -147,7 +147,7 @@ test('Maya can revise the saved launch date and answer a fresh source-of-truth q
   const final = await processPrompt(JSON.parse(JSON.stringify(second.state)), 'when will the launch be', 'Marketing', persist);
   assert.equal(final.turn.selected.value, 'October 2');
   assert.equal(needsConflictReview(final.state, final.turn), false);
-  assert.equal(final.state.turns.find(turn => turn.id === first.turn.id).selected.value, 'Monday');
+  assert.equal(final.state.turns.find(turn => turn.id === first.turn.id).selected.value, 'Monday, October 5th');
 });
 
 test('calendar-only claims are accepted without turning a question or memo header into a fact', async () => {

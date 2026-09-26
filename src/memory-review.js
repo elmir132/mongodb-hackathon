@@ -94,7 +94,7 @@ export function memoryEvidence(state, incoming, analysis) {
         }
         const contradicted = groupRelations.some(r => ['contradiction', 'revision'].includes(r.type));
         const normalized = candidates.map(canonicalFact);
-        const deterministic = normalized.every(f => ['date', 'budget', 'owner'].includes(f.attribute));
+        const deterministic = normalized.every(f => ['date', 'budget', 'owner', 'access'].includes(f.attribute));
         const conflict = contradicted || (deterministic && new Set(candidates.map(value)).size > 1);
         groups.push({ subject: candidates[0].subject, candidates, conflict,
           revision: currentRelations.some(r => r.type === 'revision'), relations: groupRelations });

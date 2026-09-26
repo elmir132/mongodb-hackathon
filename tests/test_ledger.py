@@ -325,3 +325,49 @@ def test_reported_sources_preserve_submitter_and_require_literal_attribution():
     state['documents'] = [{'id': 'reported-doc', 'name': 'reported.md', 'text': turn['prompt'], 'source': 'Marketing', 'author': 'Maya'}]
     state['facts'][-1].update(documentId='reported-doc', provenance={**fact['provenance'], 'sourceRef': 'attachment:0'})
     ledger.save(ledger.SaveRequest(workspaceId='workspace-test', state=state))
+
+
+def test_wrapped_reported_shorthand_keeps_verbatim_adjacent_provenance():
+    workspace()
+    state = ledger.public(ledger.read('workspace-test'))
+    first = 'Marketing says the next release is\n  Wednesday.'
+    quote = 'Engineering says\n  Thursday.'
+    turn = {'id': 'wrapped-review', 'prompt': first + '\n' + quote, 'source': 'Marketing', 'author': 'Maya', 'attachments': []}
+    fact = {'id': 'wrapped', 'subject': 'next release', 'attribute': 'date', 'scope': 'launch readiness',
+            'source': 'Engineering', 'value': 'Thursday', 'text': quote, 'submittedBy': {'source': 'Marketing', 'author': 'Maya'},
+            'provenance': {'method': 'model-extracted', 'turnId': turn['id'], 'sourceRef': 'prompt', 'quote': quote,
+                           'reportedSource': 'Engineering', 'contextQuote': first}}
+    state['turns'].append(turn)
+    state['facts'].append(fact)
+    ledger.save(ledger.SaveRequest(workspaceId='workspace-test', state=state))
+    assert ledger.public(ledger.read('workspace-test'))['facts'][-1]['text'] == quote
+    for changed_prompt in [first + '\nAn unrelated update.\n' + quote, quote, turn['prompt'].replace('Thursday','Tuesday')]:
+        invalid = copy.deepcopy(state)
+        invalid['turns'][-1]['prompt'] = changed_prompt
+        with pytest.raises(ledger.HTTPException):
+            ledger.save(ledger.SaveRequest(workspaceId='workspace-test', state=invalid))
+    invalid = copy.deepcopy(state)
+    invalid['facts'][-1]['text'] = 'Engineering says Thursday.'
+    invalid['facts'][-1]['provenance']['quote'] = 'Engineering says Thursday.'
+    with pytest.raises(ledger.HTTPException):
+        ledger.save(ledger.SaveRequest(workspaceId='workspace-test', state=invalid))
+
+
+def test_access_claims_preserve_sources_and_save_a_scoped_human_answer():
+    workspace()
+    state = ledger.public(ledger.read('workspace-test'))
+    quotes = ['Security says the new hire needs read-only access.', 'Manager says the new hire needs admin access.']
+    state['turns'].append({'id': 'access-review', 'prompt': ' '.join(quotes), 'source': 'Marketing', 'author': 'Maya', 'attachments': []})
+    for i, (source, value) in enumerate([('Security', 'read-only access'), ('Manager', 'admin access')]):
+        state['facts'].append({'id': f'access-{i}', 'subject': 'new hire', 'attribute': 'access', 'scope': 'access control',
+            'source': source, 'value': value, 'text': quotes[i], 'submittedBy': {'source': 'Marketing', 'author': 'Maya'},
+            'provenance': {'method': 'model-extracted', 'turnId': 'access-review', 'sourceRef': 'prompt',
+                           'quote': quotes[i], 'reportedSource': source}})
+    ledger.save(ledger.SaveRequest(workspaceId='workspace-test', state=state))
+    result = resolve(conflict='access-review', facts=['access-0', 'access-1'], scope='access-control:access')
+    assert result['resolution']['supporting_fact_ids'] == ['access-0', 'access-1']
+    answer = ledger.correct(ledger.CorrectRequest(workspaceId='workspace-test', conflictId='access-review',
+        requestId='access-answer', factId='access-0', reason='QA choice', rememberAuthority=False))
+    assert answer['resolution']['selected_fact_id'] == 'access-0'
+    assert answer['policy'] == 1 and answer['lesson'] is None
+    assert ledger.read('workspace-test')['resolutions']['access-review']['resolution'] == result['resolution']

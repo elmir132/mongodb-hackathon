@@ -1,0 +1,444 @@
+{
+  "date": "2026-09-26",
+  "method": "Browser rehearsal plus isolated same-application live request measurement; human inspection delays excluded. Replay step boundaries are calculated, total replay is wall-clock observed.",
+  "firstRun": {
+    "workspace": "workspace-d0a21710-009e-4b56-abdd-e3157717190e",
+    "reviewRecordedProcessingMs": 8184,
+    "reviewTimingExcludesFinalTraceSave": true,
+    "modelMs": 7147,
+    "correctionRecordedProcessingMs": 2768,
+    "correctionClickToReplayVisibleMs": 3121,
+    "replayClickToTerminalMs": 45438,
+    "eventCount": 39,
+    "stepCount": 29
+  },
+  "secondRun": {
+    "workspaceId": "workspace-qa-demo-timing-24f90b52-ef20-4a84-9fe2-889870cf08f8",
+    "reviewMs": 9272,
+    "correctionMs": 2763,
+    "reviewTiming": {
+      "elapsedMs": 9088,
+      "modelMs": 7978,
+      "modelCalls": 1
+    },
+    "correctionTiming": {
+      "elapsedMs": 2573,
+      "modelMs": 0,
+      "modelCalls": 0
+    },
+    "retrievalReady": true,
+    "calls": [
+      {
+        "phase": "review",
+        "operation": "Saving the original memo",
+        "elapsedMs": 183
+      },
+      {
+        "phase": "review",
+        "operation": "model request",
+        "elapsedMs": 7986
+      },
+      {
+        "phase": "review",
+        "operation": "Saving the incoming fact",
+        "elapsedMs": 206
+      },
+      {
+        "phase": "review",
+        "operation": "resolve",
+        "elapsedMs": 524
+      },
+      {
+        "phase": "review",
+        "operation": "Save the conversation response",
+        "elapsedMs": 182
+      },
+      {
+        "phase": "review",
+        "operation": "Retain completed trace",
+        "elapsedMs": 181
+      },
+      {
+        "phase": "correction",
+        "operation": "correct",
+        "elapsedMs": 2012
+      },
+      {
+        "phase": "correction",
+        "operation": "Writing the human answer",
+        "elapsedMs": 288
+      },
+      {
+        "phase": "correction",
+        "operation": "Save the decision and its evidence",
+        "elapsedMs": 271
+      },
+      {
+        "phase": "correction",
+        "operation": "Retain completed trace",
+        "elapsedMs": 190
+      }
+    ]
+  },
+  "replay": {
+    "timing": {
+      "rate": 1.4743321718931477,
+      "durationMs": 45000
+    },
+    "rows": [
+      {
+        "step": 1,
+        "start": 0,
+        "end": 0.339,
+        "node": "terminal",
+        "phase": "review",
+        "title": "Maya [Marketing] uploaded a memo",
+        "input": "Review request + source",
+        "operation": "Receive the message",
+        "output": "Memo ready for review",
+        "events": 1
+      },
+      {
+        "step": 2,
+        "start": 0.339,
+        "end": 2.659,
+        "node": "atlas",
+        "phase": "review",
+        "title": "Saving the original memo",
+        "input": "Original memo + author",
+        "operation": "Preserve the original source",
+        "output": "Original memo retained",
+        "events": 3
+      },
+      {
+        "step": 3,
+        "start": 2.659,
+        "end": 4.979,
+        "node": "model",
+        "phase": "review",
+        "title": "Review the request and propose memory evidence",
+        "input": "Can you review this launch memo before I share it with the team?",
+        "operation": "gpt-6-luna · Codex CLI · text input",
+        "output": "1 files · 2 facts · 0 notes · 0 prior exchanges",
+        "events": 1
+      },
+      {
+        "step": 4,
+        "start": 4.979,
+        "end": 5.487,
+        "node": "terminal",
+        "phase": "review",
+        "title": "Model response received",
+        "input": "gpt-6-luna",
+        "operation": "Receive the model response",
+        "output": "1002 characters · 7.1s measured",
+        "events": 1
+      },
+      {
+        "step": 5,
+        "start": 5.487,
+        "end": 5.826,
+        "node": "terminal",
+        "phase": "review",
+        "title": "Validate proposed claims and relationships",
+        "input": "Complete uploaded memo",
+        "operation": "Extract factual claims",
+        "output": "Marketing: Friday, October 2",
+        "events": 1
+      },
+      {
+        "step": 6,
+        "start": 5.826,
+        "end": 8.146,
+        "node": "atlas",
+        "phase": "review",
+        "title": "Saving the incoming fact",
+        "input": "Marketing: Friday, October 2",
+        "operation": "Append to project memory",
+        "output": "Record confirmed in Atlas",
+        "events": 3
+      },
+      {
+        "step": 7,
+        "start": 8.146,
+        "end": 8.655,
+        "node": "terminal",
+        "phase": "review",
+        "title": "Look up existing project memory",
+        "input": "launch",
+        "operation": "Read matching project facts",
+        "output": "Alex: Monday, October 5th · 2026-09-18",
+        "events": 1
+      },
+      {
+        "step": 8,
+        "start": 8.655,
+        "end": 8.994,
+        "node": "terminal",
+        "phase": "review",
+        "title": "A conflict is present",
+        "input": "New claims + stored evidence",
+        "operation": "Check for incompatible values",
+        "output": "Conflict found",
+        "events": 1
+      },
+      {
+        "step": 9,
+        "start": 8.994,
+        "end": 11.314,
+        "node": "atlas",
+        "phase": "review",
+        "title": "Read saved conflict evidence",
+        "input": "2 fact IDs",
+        "operation": "Read saved conflict evidence",
+        "output": "Policy v1 + saved facts",
+        "events": 1
+      },
+      {
+        "step": 10,
+        "start": 11.314,
+        "end": 13.633,
+        "node": "engine",
+        "phase": "review",
+        "title": "Prepare stored conflict",
+        "input": "2 stored facts",
+        "operation": "Prepare stored conflict",
+        "output": "Backend orchestration retrieves candidates before the engine evaluates applicability",
+        "events": 1
+      },
+      {
+        "step": 11,
+        "start": 13.633,
+        "end": 15.953,
+        "node": "voyage",
+        "phase": "review",
+        "title": "Embed conflict query",
+        "input": "202 characters · query",
+        "operation": "Embed conflict query",
+        "output": "1024 dimensions returned",
+        "events": 1
+      },
+      {
+        "step": 12,
+        "start": 15.953,
+        "end": 18.273,
+        "node": "vector",
+        "phase": "review",
+        "title": "Atlas Vector Search",
+        "input": "1024 dimensions · project filter workspace-d0a21710-009e-4b56-abdd-e3157717190e",
+        "operation": "Atlas Vector Search",
+        "output": "0 committed candidates; applicability not yet decided",
+        "events": 1
+      },
+      {
+        "step": 13,
+        "start": 18.273,
+        "end": 20.592,
+        "node": "engine",
+        "phase": "review",
+        "title": "Elmir’s resolution engine",
+        "input": "2 facts · policy v1",
+        "operation": "Elmir’s resolution engine",
+        "output": "No applicable precedent. Weighted policy (0.7 authority + 0.3 recency), policy v1 ranking ['marketing', 'engineering']: Marketing 1.00 vs Engineering 0.35 (margin 0.650).",
+        "events": 1
+      },
+      {
+        "step": 14,
+        "start": 20.592,
+        "end": 22.912,
+        "node": "atlas",
+        "phase": "review",
+        "title": "Save engine resolution",
+        "input": "Project workspace-d0a21710-009e-4b56-abdd-e3157717190e",
+        "operation": "Save engine resolution",
+        "output": "MongoDB acknowledged",
+        "events": 1
+      },
+      {
+        "step": 15,
+        "start": 22.912,
+        "end": 23.76,
+        "node": "terminal",
+        "phase": "review",
+        "title": "Selected Friday, October 2",
+        "input": "Evidence + evaluated policy",
+        "operation": "Record the decision basis",
+        "output": "Friday, October 2 · policy v1",
+        "events": 1
+      },
+      {
+        "step": 16,
+        "start": 23.76,
+        "end": 26.08,
+        "node": "atlas",
+        "phase": "review",
+        "title": "Save the conversation response",
+        "input": "Answer + supporting evidence",
+        "operation": "Append decision and trace",
+        "output": "Answer + evidence retained",
+        "events": 3
+      },
+      {
+        "step": 17,
+        "start": 26.08,
+        "end": 26.927,
+        "node": "terminal",
+        "phase": "review",
+        "title": "Return the answer",
+        "input": "Saved answer + evidence",
+        "operation": "Return to the conversation",
+        "output": "Reviewed answer, with context",
+        "events": 1
+      },
+      {
+        "step": 18,
+        "start": 26.927,
+        "end": 27.436,
+        "node": "terminal",
+        "phase": "correction",
+        "title": "Received Maya [Marketing]’s message",
+        "input": "Review request + source",
+        "operation": "Receive the message",
+        "output": "Message ready",
+        "events": 1
+      },
+      {
+        "step": 19,
+        "start": 27.436,
+        "end": 29.756,
+        "node": "engine",
+        "phase": "correction",
+        "title": "Convert human answer into scoped precedent",
+        "input": "fact-seed-engineering",
+        "operation": "Convert human answer into scoped precedent",
+        "output": "Proposed policy v2 · prec-22e67896229c",
+        "events": 1
+      },
+      {
+        "step": 20,
+        "start": 29.756,
+        "end": 32.076,
+        "node": "voyage",
+        "phase": "correction",
+        "title": "Embed saved precedent text",
+        "input": "44 characters · document",
+        "operation": "Embed saved precedent text",
+        "output": "1024 dimensions returned",
+        "events": 1
+      },
+      {
+        "step": 21,
+        "start": 32.076,
+        "end": 34.395,
+        "node": "atlas",
+        "phase": "correction",
+        "title": "Save precedent embedding",
+        "input": "prec-22e67896229c",
+        "operation": "Save precedent embedding",
+        "output": "Precedent upsert acknowledged",
+        "events": 1
+      },
+      {
+        "step": 22,
+        "start": 34.395,
+        "end": 36.715,
+        "node": "vector",
+        "phase": "correction",
+        "title": "Check precedent retrieval readiness",
+        "input": "prec-22e67896229c",
+        "operation": "Check precedent retrieval readiness",
+        "output": "Precedent returned by search",
+        "events": 1
+      },
+      {
+        "step": 23,
+        "start": 36.715,
+        "end": 38.383,
+        "node": "atlas",
+        "phase": "correction",
+        "title": "Save human decision and policy version",
+        "input": "Project workspace-d0a21710-009e-4b56-abdd-e3157717190e",
+        "operation": "Save human decision and policy version",
+        "output": "MongoDB acknowledged",
+        "events": 1
+      },
+      {
+        "step": 24,
+        "start": 38.383,
+        "end": 39.035,
+        "node": "atlas",
+        "phase": "correction",
+        "title": "Writing the human answer",
+        "input": "Human answer + reason",
+        "operation": "Record the human answer",
+        "output": "Human answer saved · policy v2",
+        "events": 3
+      },
+      {
+        "step": 25,
+        "start": 39.035,
+        "end": 39.43,
+        "node": "terminal",
+        "phase": "correction",
+        "title": "Read the affected facts",
+        "input": "launch",
+        "operation": "Read matching project facts",
+        "output": "Alex: Monday, October 5th · 2026-09-18",
+        "events": 1
+      },
+      {
+        "step": 26,
+        "start": 39.43,
+        "end": 39.656,
+        "node": "terminal",
+        "phase": "correction",
+        "title": "Apply the human answer",
+        "input": "Recorded human answer",
+        "operation": "Check scope and authority",
+        "output": "Remember Engineering’s authority for launch readiness in this project.",
+        "events": 1
+      },
+      {
+        "step": 27,
+        "start": 39.656,
+        "end": 39.882,
+        "node": "terminal",
+        "phase": "correction",
+        "title": "Selected Monday, October 5th",
+        "input": "Evidence + evaluated policy",
+        "operation": "Record the decision basis",
+        "output": "Monday, October 5th · policy v2",
+        "events": 1
+      },
+      {
+        "step": 28,
+        "start": 39.882,
+        "end": 42.202,
+        "node": "atlas",
+        "phase": "correction",
+        "title": "Save the decision and its evidence",
+        "input": "Answer + supporting evidence",
+        "operation": "Append decision and trace",
+        "output": "Answer + evidence retained",
+        "events": 3
+      },
+      {
+        "step": 29,
+        "start": 42.202,
+        "end": 43.05,
+        "node": "terminal",
+        "phase": "correction",
+        "title": "Return the answer",
+        "input": "Saved answer + evidence",
+        "operation": "Return to the conversation",
+        "output": "Reviewed answer, with context",
+        "events": 1
+      }
+    ]
+  },
+  "budget": {
+    "machineSegmentsMs": 57473,
+    "presenterClicksRemainingFor60SecondsMs": 2527,
+    "humanTimingMeasured": false
+  }
+}

@@ -16,7 +16,7 @@ test('connected engine selection overrides local demo authority and retains actu
   const services = fixtureServices();
   let context;
   const result = await processPrompt(seedState(), 'The launch is Friday.', 'Marketing', () => {}, async input => { context = input; return { answer: 'Reviewed', model: 'test' }; }, [], { services });
-  assert.equal(result.turn.selected.value, 'Monday');
+  assert.equal(result.turn.selected.value, 'Monday, October 5th');
   assert.equal(result.turn.policy, 7);
   assert.equal(context.engineResolution.explanation, 'Actual engine decision');
   assert.equal(result.turn.serviceMode, 'atlas');

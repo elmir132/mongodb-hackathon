@@ -191,8 +191,10 @@ def validate_claim_provenance(state):
             raise HTTPException(400, 'Extracted claim source must match its sender or explicit reported attribution.')
         context = provenance.get('contextQuote')
         if context is not None:
-            parts = [part.strip() for part in re.split(r'(?<=[.!?])\s+|\n+', text) if part.strip()]
-            if not reporter or not any(part == quote and index > 0 and parts[index - 1] == context for index, part in enumerate(parts)):
+            # Both slices stay verbatim, including their internal line wraps;
+            # only whitespace may separate the adjacent context and claim.
+            adjacent = isinstance(context, str) and bool(context.strip()) and re.search(re.escape(context) + r'\s+' + re.escape(quote), text)
+            if not reporter or not adjacent:
                 raise HTTPException(400, 'Shorthand claims require the immediately preceding source passage.')
 
 

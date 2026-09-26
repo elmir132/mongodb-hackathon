@@ -311,3 +311,65 @@ test('answering reopened authority context preserves the original review in one 
   const answered=await processPrompt(reopened.state,'Use Monday.','Marketing',()=>{},undefined,[],{conflictReview:{conflictTurnId:reopened.turn.id,factId:'e',rememberAuthority:false,reason:reopened.turn.authorityRequest.reason}});
   assert.deepEqual(completedReplayCycle(answered.state).turns.map(t=>t.id),[original.turn.id,reopened.turn.id,answered.turn.id]);
 });
+
+test('the exact pasted line-wrapped conflict saves both sources before engine resolution',async()=>{
+  const prompt='Marketing says the launch is Friday. Engineering says the launch is\n  Monday.';
+  const fields={subject:'launch',attribute:'date',scope:'launch readiness'};
+  const fx=fixture(raw([
+    claim('Marketing says the launch is Friday.',{...fields,value:'Friday'}),
+    claim('Engineering says the launch is Monday.',{...fields,ref:'c2',value:'Monday'})
+  ]));
+  const result=await run(initial([]),prompt,fx);
+  assert.equal(result.turn.memoryAnalysis.status,'validated');
+  assert.equal(result.turn.conflict,true); assert.ok(fx.calls.includes('resolve'));
+  assert.deepEqual(result.turn.incoming.map(f=>f.source),['Marketing','Engineering']);
+  assert.equal(result.turn.incoming[1].provenance.quote,'Engineering says the launch is\n  Monday.');
+  assert.doesNotMatch(result.turn.answer,/Memory checking was incomplete/);
+  assert.ok(result.turn.conflictQuestion);
+});
+
+test('reported Q4 budgets save both departments and open a budget-specific question',async()=>{
+  const prompt='Finance says the Q4 budget is $50,000. Product says the Q4 budget is\n  $75,000.';
+  const fields={subject:'q4 budget',attribute:'budget',scope:'project finance'};
+  const fx=fixture(raw([
+    claim('Finance says the Q4 budget is $50,000.',{...fields,value:'$50,000'}),
+    claim('Product says the Q4 budget is $75,000.',{...fields,ref:'c2',value:'$75,000'})
+  ]));
+  const {turn}=await run(initial([]),prompt,fx);
+  assert.equal(turn.memoryAnalysis.status,'validated');assert.equal(turn.conflict,true);
+  assert.deepEqual(turn.incoming.map(f=>[f.source,f.value]),[['Finance','$50,000'],['Product','$75,000']]);
+  assert.equal(turn.incoming[1].text,'Product says the Q4 budget is\n  $75,000.');
+  assert.ok(fx.calls.includes('resolve'));assert.match(turn.conflictQuestion.question,/q4 budget/);
+  assert.doesNotMatch(turn.answer,/Memory checking was incomplete/);
+});
+
+test('new hire access conflict reaches the engine and requires a source-backed answer', async () => {
+  const {currentConflictQuestion}=await import('./conflict-review.js');
+  const {completedReplayCycle}=await import('./replay-cycle.js');
+  const quotes=['Security says the new hire needs read-only access.', 'Manager says the new hire needs admin access.'];
+  const claims=quotes.map((quote,i)=>claim(quote,{ref:`c${i+1}`,subject:'new hire',scope:'access control',attribute:'access',value:i ? 'admin access' : 'read-only access'}));
+  const fx=fixture(raw(claims));
+  const {turn,state}=await run(initial([]),quotes.join(' '),fx);
+  assert.equal(turn.memoryAnalysis.status,'validated');
+  assert.equal(turn.conflict,true);
+  assert.equal(fx.calls.filter(c=>c==='resolve').length,1);
+  assert.equal(fx.calls.filter(c=>c==='model').length,1);
+  assert.deepEqual(turn.candidates.map(f=>f.source),['Security','Manager']);
+  assert.ok(turn.candidates.every(f=>f.submittedBy.source==='Marketing' && !f.author));
+  assert.match(turn.conflictQuestion.question,/read-only access or admin access/);
+  assert.match(turn.answer,/claims disagree/);
+  assert.equal(currentConflictQuestion(state,state.activeChatId)?.id,turn.id);
+  assert.equal(completedReplayCycle(state,state.activeChatId),null);
+});
+
+test('equivalent access levels and separate resource subjects do not manufacture conflicts', async () => {
+  for (const [subject,value] of [['new hire','administrator access'],['contractor','read-only access']]) {
+    const old={id:'old-access',subject:'new hire',scope:'access control',attribute:'access',value:'admin access',source:'Security',text:'Security says the new hire needs admin access.'};
+    const prompt=`Manager says the ${subject} needs ${value}.`;
+    const fx=fixture(raw([claim(prompt,{subject,scope:'access control',attribute:'access',value})]));
+    const {turn}=await run(initial([old]),prompt,fx);
+    assert.equal(turn.conflict,false);
+    assert.equal(turn.conflictQuestion,null);
+    assert.ok(!fx.calls.includes('resolve'));
+  }
+});

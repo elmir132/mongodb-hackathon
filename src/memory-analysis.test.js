@@ -176,3 +176,84 @@ test('shorthand has exact adjacent context and omissions stay visible', () => {
   const unsupported = validateMemoryAnalysis(analysis([claims[0],{...claims[1],contextQuote:null}]),context(`${first} ${second}`,[]));
   assert.equal(unsupported.status,'partial'); assert.equal(unsupported.claims.length,1);
 });
+
+test('wrapped reported claims validate with exact or whitespace-normalized model quotes', () => {
+  const first = 'Marketing says the launch is Friday.';
+  const fields = {subject:'launch',attribute:'date',scope:'launch readiness'};
+  for (const wrap of ['\n  ', '\r\n\t']) {
+    const second = `Engineering says the launch is${wrap}Monday.`;
+    const ctx = context(`${first} ${second}`,[]);
+    for (const proposed of [second, second.replace(/\s+/g,' ')]) {
+      const result = validateMemoryAnalysis(analysis([claim(first,{...fields,value:'Friday'}),claim(proposed,{...fields,ref:'c2',value:'Monday'})]),ctx);
+      assert.equal(result.status,'validated');
+      assert.deepEqual(result.claims.map(c=>c.source),['Marketing','Engineering']);
+      assert.equal(result.claims[1].quote,second,'saved evidence must retain the exact original whitespace');
+      assert.equal(result.coverage.checked,2);
+      assert.deepEqual(result.coverage.omitted,[]);
+    }
+    const incomplete = validateMemoryAnalysis(analysis([claim(first,{...fields,value:'Friday'})]),ctx);
+    assert.equal(incomplete.status,'partial');
+    assert.deepEqual(incomplete.coverage.omitted,[{sourceRef:'prompt',quote:second}]);
+    const changed = validateMemoryAnalysis(analysis([claim('Engineering says the launch is Tuesday.',{...fields,value:'Tuesday'})]),ctx);
+    assert.equal(changed.claims.length,0,'whitespace tolerance must not allow changed words');
+  }
+});
+
+test('wrapped shorthand retains adjacent context in the same attachment', () => {
+  const first = 'Marketing says the next release is\n  Wednesday.';
+  const second = 'Engineering says\n  Thursday.';
+  const fields = {sourceRef:'attachment:0',subject:'next release',attribute:'date',scope:'launch readiness'};
+  const result = validateMemoryAnalysis(analysis([
+    claim(first.replace(/\s+/g,' '),{...fields,value:'Wednesday'}),
+    claim(second.replace(/\s+/g,' '),{...fields,ref:'c2',value:'Thursday',contextQuote:first.replace(/\s+/g,' ')})
+  ]),context('Review this.',[],[{name:'wrapped.md',text:`Prepared: September 26, 2026\n${first}\n${second}`} ]));
+  assert.equal(result.status,'validated');
+  assert.equal(result.claims[1].quote,second); assert.equal(result.claims[1].contextQuote,first);
+});
+
+test('line wrapping cannot strip a reporter, conditional context, or combine sources', () => {
+  const fields = {subject:'launch',attribute:'date',scope:'launch readiness',value:'Monday'};
+  const cases = [
+    ['Engineering says\n the launch is Monday.','the launch is Monday.'],
+    ['If the rollout slips,\n Engineering says the launch is Monday.','Engineering says the launch is Monday.'],
+    ['For example,\n Engineering says the launch is Monday.','Engineering says the launch is Monday.'],
+    ['Marketing says the launch is Friday.\nEngineering says the launch is Monday.','Marketing says the launch is Friday. Engineering says the launch is Monday.'],
+  ];
+  for (const [prompt,quote] of cases) assert.equal(validateMemoryAnalysis(analysis([claim(quote,fields)]),context(prompt,[])).claims.length,0,prompt);
+});
+
+test('budget validation ignores quarter and year labels while preserving currencies and amounts', () => {
+  for (const [subject,quote,value,key] of [
+    ['Q4 budget','Finance says the Q4 budget is $50,000.','$50,000','USD:50000'],
+    ['Q4 budget','Product says the Q4 budget is\n  $75,000.','$75,000','USD:75000'],
+    ['2026 budget','Finance says the 2026 budget is USD 50k.','$50,000','USD:50000'],
+    ['Q4 budget','Finance says the Q4 budget is 50,000 EUR.','€50k','EUR:50000'],
+    ['Q4 budget','Finance says the Q4 budget is 50000.','50000',':50000'],
+  ]) {
+    const result=validateMemoryAnalysis(analysis([claim(quote,{subject,value})]),context(quote,[]));
+    assert.equal(result.status,'validated',quote);assert.equal(memoryValueKey(result.claims[0]),key);
+  }
+  for (const value of ['$75,000','€50,000','4']) {
+    const quote='Finance says the Q4 budget is $50,000.';
+    assert.equal(validateMemoryAnalysis(analysis([claim(quote,{subject:'Q4 budget',value})]),context(quote,[])).claims.length,0,value);
+  }
+  const multiple='The Q4 budget is $50,000 with a separate reserve of $10,000.';
+  assert.equal(validateMemoryAnalysis(analysis([claim(multiple,{subject:'Q4 budget',value:'$50,000'})]),context(multiple,[])).claims.length,0,'must not guess between distinct amounts');
+});
+
+test('reported access levels retain claimant attribution and flag omitted permissions', () => {
+  const quotes = ['Security says the new hire needs read-only access.', 'Manager says the new hire needs admin access.'];
+  const ctx = context(quotes.join(' '), []);
+  const claims = quotes.map((quote, i) => claim(quote, {ref:`c${i+1}`, subject:'new hire', scope:'access control', attribute:'access', value:i ? 'admin access' : 'read-only access'}));
+  const result = validateMemoryAnalysis(analysis(claims), ctx);
+  assert.equal(result.status, 'validated');
+  assert.deepEqual(result.claims.map(c => c.source), ['Security', 'Manager']);
+  assert.ok(result.claims.every(c => !c.author));
+  assert.deepEqual(result.claims.map(memoryValueKey), ['read-only', 'admin']);
+  assert.equal(validateMemoryAnalysis(analysis([]), ctx).status, 'unavailable');
+  assert.equal(validateMemoryAnalysis(analysis(claims.slice(0,1)), ctx).status, 'partial');
+  for (const [quote, value] of [['Security says the new hire does not need admin access.', 'admin access'], ['Does the new hire need admin access?', 'admin access'], ['If the new hire needs admin access, ask Security.', 'admin access'], [quotes[0], 'admin access']]) {
+    const rejected = validateMemoryAnalysis(analysis([claim(quote, {...claims[0], quote, value})]), context(quote, []));
+    assert.equal(rejected.claims.length, 0, quote);
+  }
+});

@@ -16,12 +16,12 @@ const words = text => text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 const mentionsSubject = (text, subject) => ` ${words(text)} `.includes(` ${words(subject)} `);
 const months = 'January|February|March|April|May|June|July|August|September|October|November|December';
 const calendarDate = text => new RegExp(`\\b(?:${months})\\s+\\d{1,2}(?:st|nd|rd|th)?(?:,?\\s+\\d{4})?\\b|\\b\\d{4}-\\d{2}-\\d{2}\\b`, 'i').exec(text)?.[0];
-const claimValue = fact => (calendarDate(fact.value) || calendarDate(fact.text || '') || fact.value).toLowerCase();
+const claimValue = fact => (calendarDate(fact.value) || calendarDate(fact.text || '') || fact.value).toLowerCase().replace(/(\d)(?:st|nd|rd|th)\b/g, '$1');
 const explicitRevision = text => /\b(?:actually|correction|instead|change|revise|override|should be|must be|needs to be)\b/i.test(text);
 const title = value => value[0].toUpperCase() + value.slice(1).toLowerCase();
 
 export function seedState() {
-  return { version: 3, policy: 1, lesson: null, turns: [], notes: [], documents: [], facts: [{ id: 'fact-seed-engineering', source: 'Engineering', author: 'Alex', subject: 'launch', scope: 'launch readiness', value: 'Monday', text: 'The final readiness checks complete Monday, October 5. Public access should wait until those checks are complete.', document: 'Release readiness update', sourceDate: '2026-09-18', seeded: true }, { id: 'fact-seed-next-engineering', source: 'Engineering', author: 'Alex', subject: 'next release', scope: 'launch readiness', value: 'Thursday', text: 'The next release will be ready Thursday, October 15, after the migration rehearsal and accessibility checks. Keep the customer announcement behind that gate.', document: 'October release planning notes', sourceDate: '2026-09-24', seeded: true }] };
+  return { version: 3, policy: 1, lesson: null, turns: [], notes: [], documents: [], facts: [{ id: 'fact-seed-engineering', source: 'Engineering', author: 'Alex', subject: 'launch', scope: 'launch readiness', value: 'Monday, October 5th', text: 'The final readiness checks complete Monday, October 5. Public access should wait until those checks are complete.', document: 'Release readiness update', sourceDate: '2026-09-18', seeded: true }, { id: 'fact-seed-next-engineering', source: 'Engineering', author: 'Alex', subject: 'next release', scope: 'launch readiness', value: 'Thursday', text: 'The next release will be ready Thursday, October 15, after the migration rehearsal and accessibility checks. Keep the customer announcement behind that gate.', document: 'October release planning notes', sourceDate: '2026-09-24', seeded: true }] };
 }
 
 function extractFacts(prompt, source) {
@@ -171,7 +171,7 @@ export async function processPrompt(previous, prompt, source, persist, generate,
       const mentioned = [...new Set(state.facts.map(fact => fact.subject))].filter(value => mentionsSubject(prompt, value));
       subjects.push(...mentioned.filter(value => !mentioned.some(other => other !== value && other.includes(value))));
     }
-    subject = subjects.find(value => new Set(state.facts.filter(fact => fact.subject === value).map(fact => fact.value.toLowerCase())).size > 1) || subjects[0];
+    subject = subjects.find(value => new Set(state.facts.filter(fact => fact.subject === value).map(claimValue)).size > 1) || subjects[0];
     candidates = subject ? state.facts.filter(fact => fact.subject === subject) : [];
     if (memoryReview) {
       evidenceGroups = authorityRequest ? [{ subject: authorityRequest.subject, candidates: authorityRequest.candidates, conflict: true, relations: [] }] : memoryEvidence(state, incoming, analysis);
@@ -179,7 +179,7 @@ export async function processPrompt(previous, prompt, source, persist, generate,
       subject = first?.subject; candidates = first?.candidates || [];
     }
     emit('recall', 'Look up existing project memory', candidates.length ? `${candidates.length} ${subject} claims found. ${candidates.filter(fact => fact.seeded).map(fact => `Earlier evidence: ${fact.document || 'Engineering update'}${fact.sourceDate ? ` · ${fact.sourceDate}` : ''}.`).join(' ')}` : `${state.facts.length} facts available; no matching structured evidence found.`);
-    conflict = memoryReview ? Boolean(evidenceGroups[0]?.conflict) : new Set(candidates.map(fact => fact.value.toLowerCase())).size > 1;
+    conflict = memoryReview ? Boolean(evidenceGroups[0]?.conflict) : new Set(candidates.map(claimValue)).size > 1;
     emit('compare', conflict ? 'A conflict is present' : candidates.length ? 'Check the evidence' : 'No supported answer in memory', candidates.length ? candidates.map(fact => `${fact.source}: ${fact.value}`).join(' · ') : 'A connected model is needed to interpret this request beyond local project facts.');
     const inScope = candidates.length && candidates.every(fact => fact.scope === 'launch readiness');
     const previousReview = !authorityRequest && (lookup?.review || (conflict && matchingConflictReview(state, candidates)));

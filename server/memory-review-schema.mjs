@@ -11,7 +11,7 @@ export const MEMORY_REVIEW_SCHEMA = object({
   memoryAnalysis: object({
     claims: list(object({
       ref: text, sourceRef: text, quote: text, contextQuote: nullableText, subject: text,
-      attribute: { type: 'string', enum: ['date', 'owner', 'budget', 'status'] },
+      attribute: { type: 'string', enum: ['date', 'owner', 'budget', 'status', 'access'] },
       scope: text, value: text, validFrom: nullableText, validTo: nullableText,
     }), 8),
     relations: list(object({ claimRef: text, factId: text, type: { type: 'string', enum: ['contradiction', 'equivalent', 'revision'] } }), 24),

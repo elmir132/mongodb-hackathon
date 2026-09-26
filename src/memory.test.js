@@ -36,7 +36,7 @@ test('arbitrary prompts reach a model and queries do not become facts', async ()
   assert.equal(calls,1); assert.equal(result.turn.answer,'Rain taps on the glass.');
   assert.equal(result.state.facts.length,2); assert.equal(result.turn.model,'test-model');
   const query=await processPrompt(result.state,'When is the launch?','You',persist);
-  assert.equal(query.turn.incoming.length,0); assert.equal(query.turn.selected.value,'Monday');
+  assert.equal(query.turn.incoming.length,0); assert.equal(query.turn.selected.value,'Monday, October 5th');
 });
 test('storage failure never returns a saved response or calls a model', async () => {
   let called=false;
@@ -95,4 +95,10 @@ test('a failed correction response retains its message and the saved lesson', as
   assert.equal(latest.turns[0].answer, null);
   assert.equal(latest.policy, 2);
   assert.ok(latest.lesson);
+});
+
+test('expanded preset date agrees with the same calendar date in a new claim', async () => {
+  const result = await processPrompt(seedState(), 'The launch is Monday, October 5.', 'Engineering', persist);
+  assert.equal(result.turn.conflict, false);
+  assert.equal(result.state.facts[0].value, 'Monday, October 5th');
 });

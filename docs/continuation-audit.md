@@ -305,3 +305,50 @@ composer, and exposed exactly one Replay internals action. A development hot
 reload interrupted an earlier QA save while the UI code was being edited; the
 final interaction was rerun against the stable build in a fresh isolated QA
 workspace. The user's selected workspace was not changed.
+
+
+## Wrapped-claim regression — fixed
+
+The user’s failing prompt contained `Engineering says the launch is\n  Monday.`
+The previous validator split every newline into a sentence boundary and rejected
+the reported claim. A model-normalized one-line quote also failed exact matching.
+
+Soft line wrapping now remains within a sentence. Whitespace-only quote matches
+are restored to the exact source slice before validation and persistence. The
+original message and document are unchanged; paragraph/header/list boundaries,
+reporter attribution, and hypothetical/changed-word checks remain in place.
+The backend checks verbatim adjacent context without splitting internal wraps.
+
+Verification: 121 JavaScript tests, 59 Python tests, production build, and diff
+checks passed. Added coverage for LF/CRLF wraps, normalized model quotes, wrapped
+shorthand in attachments, omitted wrapped claims, changed words, stripped
+reporters, hypothetical contexts, and backend provenance.
+
+The exact failing prompt passed the real Codex → Atlas → engine flow in
+`workspace-qa-wrapped-49a2be45-5d14-472b-a26e-0857221924b5`: both claims validated and persisted, Friday selected under
+the starting policy, and the Friday-or-Monday question appeared without the
+incomplete-check warning. Atlas reload retained the original newline in the
+Engineering quote. Request duration was 10003 ms, including one model
+call; this is an observation, not a latency guarantee. Prior partial responses
+were preserved, so the user can resubmit the same message unchanged.
+
+
+## Q4 budget regression — fixed
+
+The user’s Finance/Product budget review proposed two claims, but validation
+rejected both. The amount matcher selected the `4` inside `Q4` before reaching
+`$50,000` or `$75,000`. This reproduced independently of the previously fixed
+line-wrap issue.
+
+Amount matching now respects identifier boundaries, prefers explicitly
+currency-marked amounts over unrelated bare numbers such as years, and rejects
+quotes with several distinct amounts instead of guessing. Currency and value
+mismatches remain rejected. Regression tests cover Q4, 2026, bare amounts,
+USD/EUR formatting, wrong amounts, and the complete reported-budget flow.
+
+All 123 JavaScript tests and the production build passed. The exact user prompt,
+including the Product line break, passed the real model/Atlas/engine path in
+`workspace-qa-q4-budget-36cd46a2-9010-492e-9d13-3f27566f4dd6`. Both amounts persisted with Finance and Product attribution,
+and the response asked “For q4 budget, should I use $50,000 or $75,000?”. No budget authority rule was invented.
+Atlas reload retained the exact wrapped source quote. Observed request time:
+7029 ms, with one model call.
