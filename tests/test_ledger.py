@@ -371,3 +371,54 @@ def test_access_claims_preserve_sources_and_save_a_scoped_human_answer():
     assert answer['resolution']['selected_fact_id'] == 'access-0'
     assert answer['policy'] == 1 and answer['lesson'] is None
     assert ledger.read('workspace-test')['resolutions']['access-review']['resolution'] == result['resolution']
+
+
+@pytest.mark.parametrize('quote', [
+    'QA states the login bug is a frontend issue.',
+    'According to QA, the login bug is a frontend issue.',
+    'The login bug is a frontend issue, according to QA.',
+    'QA: the login bug is a frontend issue.',
+    '- QA believes the login bug is a frontend issue.',
+])
+def test_general_reported_claims_validate_at_storage_boundary(quote):
+    workspace()
+    state = ledger.public(ledger.read('workspace-test'))
+    state['turns'].append({'id': 'custom-review', 'prompt': quote, 'source': 'Marketing', 'author': 'Maya', 'attachments': []})
+    fact = {'id': 'custom-claim', 'subject': 'login bug', 'attribute': 'component', 'scope': 'login bug',
+            'source': 'QA', 'value': 'frontend issue', 'text': quote,
+            'submittedBy': {'source': 'Marketing', 'author': 'Maya'},
+            'provenance': {'method': 'model-extracted', 'turnId': 'custom-review', 'sourceRef': 'prompt',
+                           'quote': quote, 'reportedSource': 'QA'}}
+    state['facts'].append(fact)
+    ledger.save(ledger.SaveRequest(workspaceId='workspace-test', state=state))
+    assert ledger.public(ledger.read('workspace-test'))['facts'][-1] == fact
+    for change in ({'source': 'Backend'}, {'author': 'Alex'}, {'submittedBy': {'source': 'QA'}},
+                   {'provenance': {**fact['provenance'], 'reportedSource': 'Backend'}}):
+        invalid = copy.deepcopy(state)
+        invalid['facts'][-1].update(change)
+        with pytest.raises(ledger.HTTPException):
+            ledger.save(ledger.SaveRequest(workspaceId='workspace-test', state=invalid))
+
+
+def test_general_conflict_correction_and_scope_remain_in_existing_engine():
+    workspace()
+    state = ledger.public(ledger.read('workspace-test'))
+    quotes = ['According to QA, the login bug is a frontend issue.', 'Backend states the login bug is a backend issue.']
+    state['turns'].append({'id': 'bug-review', 'prompt': ' '.join(quotes), 'source': 'Marketing', 'author': 'Maya', 'attachments': []})
+    for i, (source, value) in enumerate([('QA', 'frontend issue'), ('Backend', 'backend issue')]):
+        state['facts'].append({'id': f'bug-{i}', 'subject': 'login bug', 'attribute': 'component', 'scope': 'login bug',
+            'source': source, 'value': value, 'text': quotes[i], 'submittedBy': {'source': 'Marketing', 'author': 'Maya'},
+            'provenance': {'method': 'model-extracted', 'turnId': 'bug-review', 'sourceRef': 'prompt',
+                           'quote': quotes[i], 'reportedSource': source}})
+    ledger.save(ledger.SaveRequest(workspaceId='workspace-test', state=state))
+    result = resolve(conflict='bug-review', facts=['bug-0', 'bug-1'], scope='login-bug:component')
+    assert result['resolution']['supporting_fact_ids'] == ['bug-0', 'bug-1']
+    assert result['resolution']['selected_fact_id'] is None
+    answer = ledger.correct(ledger.CorrectRequest(workspaceId='workspace-test', conflictId='bug-review',
+        requestId='bug-answer', factId='bug-0', reason='Confirmed diagnosis', rememberAuthority=True))
+    assert answer['resolution']['selected_fact_id'] == 'bug-0'
+    assert answer['policy'] == 2
+    assert answer['lesson']['scope'] == 'login-bug:component'
+    assert ledger.read('workspace-test')['resolutions']['bug-review']['resolution'] == result['resolution']
+    with pytest.raises(ledger.HTTPException):
+        resolve(conflict='wrong-property', facts=['bug-0', 'bug-1'], scope='login-bug:owner')

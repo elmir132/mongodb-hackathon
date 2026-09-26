@@ -3,6 +3,7 @@ import { turnsForChat } from './conversations.js';
 import { findConflictTurn, needsConflictReview } from './conflict-review.js';
 
 const isComplete = turn => Boolean(turn?.answer && turn.status === 'completed'
+  && !['partial', 'unavailable'].includes(turn.memoryAnalysis?.status)
   && turn.trace?.some(event => event.stage === 'committed')
   && turn.trace.at(-1)?.stage === 'respond');
 

@@ -11,11 +11,13 @@ export const MEMORY_REVIEW_SCHEMA = object({
   memoryAnalysis: object({
     claims: list(object({
       ref: text, sourceRef: text, quote: text, contextQuote: nullableText, subject: text,
-      attribute: { type: 'string', enum: ['date', 'owner', 'budget', 'status', 'access'] },
+      attribute: { type: 'string', minLength: 1, maxLength: 80 },
       scope: text, value: text, validFrom: nullableText, validTo: nullableText,
     }), 8),
-    relations: list(object({ claimRef: text, factId: text, type: { type: 'string', enum: ['contradiction', 'equivalent', 'revision'] } }), 24),
+    relations: list(object({ claimRef: text, factId: nullableText, targetClaimRef: nullableText,
+      type: { type: 'string', enum: ['contradiction', 'equivalent', 'revision', 'compatible', 'uncertain'] } }), 24),
     relevantFactIds: list(text, 16),
+    unreviewed: list(object({ sourceRef: text, quote: text, reason: text }), 16),
   }),
   reviewNotes: list(object({ sourceRef: text, quote: text, comment: text }), 2),
 });

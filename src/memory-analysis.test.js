@@ -26,9 +26,9 @@ test('paraphrased amounts and status synonyms cannot become false conflicts', ()
   assert.equal(equivalent.relations[0].type,'equivalent');
 });
 
-test('unknown IDs, hallucinated quotes, duplicate IDs and unsupported attributes are rejected', () => {
+test('unknown IDs, hallucinated quotes, duplicate IDs and malformed attributes are rejected', () => {
   const quote = 'The budget is $15,000.';
-  const output = validateMemoryAnalysis(analysis([claim('The budget is $5.'),claim(quote),claim(quote),claim(quote,{ref:'c2',attribute:'secret'})],[{claimRef:'c1',factId:'invented',type:'contradiction'}]),context(quote));
+  const output = validateMemoryAnalysis(analysis([claim('The budget is $5.'),claim(quote),claim(quote),claim(quote,{ref:'c2',attribute:'bad:property'})],[{claimRef:'c1',factId:'invented',type:'contradiction'}]),context(quote));
   assert.equal(output.claims.length,1); assert.equal(output.rejected.claims,3); assert.equal(output.rejected.relations,1);
 });
 
@@ -256,4 +256,103 @@ test('reported access levels retain claimant attribution and flag omitted permis
     const rejected = validateMemoryAnalysis(analysis([claim(quote, {...claims[0], quote, value})]), context(quote, []));
     assert.equal(rejected.claims.length, 0, quote);
   }
+});
+
+test('open property claims compare new claims and preserve ordinary reported wording', () => {
+  const variants = [
+    ['QA says the login bug is a frontend issue.', 'Backend says the login bug is a backend issue.'],
+    ['QA states that the login bug is a frontend issue.', 'Backend reports that the login bug is a backend issue.'],
+    ['According to QA, the login bug is a frontend issue.', 'According to Backend, the login bug is a backend issue.'],
+    ['The login bug is a frontend issue, according to QA.', 'The login bug is a backend issue, according to Backend.'],
+    ['QA: the login bug is a frontend issue.', 'Backend: the login bug is a backend issue.'],
+    ['QA believes the login bug is a frontend issue.', 'Backend thinks the login bug is a backend issue.'],
+    ['- QA says the login bug is a frontend issue.', '- Backend says the login bug is a backend issue.'],
+  ];
+  for (const [first, second] of variants) for (const separator of [' ', '\n']) {
+    const prompt = first + separator + second;
+    const claims = [first,second].map((quote,i) => claim(quote,{ref:`c${i+1}`,subject:'login bug',attribute:'component',scope:'login bug',value:i?'backend issue':'frontend issue'}));
+    const result = validateMemoryAnalysis(analysis(claims,[{claimRef:'c1',targetClaimRef:'c2',type:'contradiction'}]),context(prompt,[]));
+    assert.equal(result.status,'validated',prompt);
+    assert.deepEqual(result.claims.map(c=>c.source),['QA','Backend'],prompt);
+    assert.equal(result.relations.length,1,prompt);
+    assert.ok(result.claims.every(c=>!c.author),prompt);
+  }
+});
+
+test('general assertions and omitted pair judgements cannot silently count as checked', () => {
+  for (const prompt of [
+    'QA says the login bug is a frontend issue. Backend says the login bug is a backend issue.',
+    'The customer data is stored in Europe. The customer data is stored in the US.',
+    'Ops reports the outage was caused by DNS. Infra states the outage was caused by routing.',
+    'The backup uses S3. The backup uses Azure.',
+  ]) {
+    const result = validateMemoryAnalysis(analysis([]),context(prompt,[]));
+    assert.equal(result.status,'unavailable',prompt);
+    assert.equal(result.coverage.omitted.length,2,prompt);
+  }
+  const quotes=['QA says the login bug is a frontend issue.','Backend says the login bug is a backend issue.'];
+  const claims=quotes.map((quote,i)=>claim(quote,{ref:`c${i+1}`,subject:'login bug',attribute:'component',scope:'login bug',value:i?'backend issue':'frontend issue'}));
+  for (const relations of [[],[{claimRef:'c1',targetClaimRef:'c2',type:'uncertain'}]]) {
+    const result=validateMemoryAnalysis(analysis(claims,relations),context(quotes.join(' '),[]));
+    assert.equal(result.status,'partial');
+    assert.equal(result.claims.length,2); assert.equal(result.coverage.uncompared.length,1);
+  }
+});
+
+test('new semantic pairs support synonyms and compatible facts without declaring contradiction', () => {
+  const first='QA says the login bug is a frontend issue.';
+  const second='Backend says the login bug is a client-side issue.';
+  const claims=[first,second].map((quote,i)=>claim(quote,{ref:`c${i+1}`,subject:'login bug',attribute:'component',scope:'login bug',value:i?'client-side issue':'frontend issue'}));
+  for (const type of ['equivalent','compatible']) {
+    const result=validateMemoryAnalysis(analysis(claims,[{claimRef:'c1',targetClaimRef:'c2',type}]),context(`${first} ${second}`,[]));
+    assert.equal(result.status,'validated'); assert.equal(result.relations[0].type,type);
+  }
+  const contradictory=validateMemoryAnalysis(analysis(claims,[{claimRef:'c1',targetClaimRef:'c2',type:'equivalent'},{claimRef:'c2',targetClaimRef:'c1',type:'contradiction'}]),context(`${first} ${second}`,[]));
+  assert.equal(contradictory.status,'partial'); assert.equal(contradictory.relations[0].type,'uncertain');
+});
+
+test('new pair relations cannot cross subjects, attributes, scopes, or periods or invent endpoints', () => {
+  const quotes=['QA says the login bug is a frontend issue.','Backend says the login bug is a backend issue.'];
+  const claims=quotes.map((quote,i)=>claim(quote,{ref:`c${i+1}`,subject:'login bug',attribute:'component',scope:'login bug',value:i?'backend issue':'frontend issue'}));
+  for (const change of [{attribute:'cause'},{scope:'another issue'},{subject:'backend issue'}]) {
+    const result=validateMemoryAnalysis(analysis([claims[0],{...claims[1],...change}],[{claimRef:'c1',targetClaimRef:'c2',type:'contradiction'}]),context(quotes.join(' '),[]));
+    assert.equal(result.relations.length,0);
+  }
+  for (const relation of [{claimRef:'c1',targetClaimRef:'c3',type:'contradiction'}, {claimRef:'c1',targetClaimRef:'c1',type:'contradiction'}, {claimRef:'c1',targetClaimRef:'c2',factId:'old',type:'contradiction'}]) {
+    const result=validateMemoryAnalysis(analysis(claims,[relation]),context(quotes.join(' '),[]));
+    assert.equal(result.relations.length,0);
+  }
+});
+
+test('general shorthand borrows only adjacent, unambiguous same-source context', () => {
+  const first='QA says the login bug is a frontend issue.';
+  const second='Backend says it is a backend issue.';
+  const fields={subject:'login bug',attribute:'component',scope:'login bug'};
+  const proposal=analysis([claim(first,{...fields,value:'frontend issue'}),claim(second,{...fields,ref:'c2',value:'backend issue',contextQuote:first})],[{claimRef:'c1',targetClaimRef:'c2',type:'contradiction'}]);
+  const result=validateMemoryAnalysis(proposal,context(`${first} ${second}`,[]));
+  assert.equal(result.status,'validated'); assert.equal(result.claims[1].contextQuote,first);
+  for (const prompt of [second,`${first} A separate topic. ${second}`]) {
+    assert.equal(validateMemoryAnalysis(analysis([proposal.claims[1]]),context(prompt,[])).claims.length,0);
+  }
+  const unrelated='Backend says the checkout bug is a backend issue.';
+  assert.equal(validateMemoryAnalysis(analysis([{...proposal.claims[1],quote:unrelated}]),context(`${first} ${unrelated}`,[])).claims.length,0);
+});
+
+test('general claims cannot erase negation, uncertainty, attribution or exact evidence', () => {
+  const fields={subject:'login bug',attribute:'component',scope:'login bug',value:'frontend issue'};
+  for (const quote of ['QA says the login bug is not a frontend issue.', "QA says the login bug isn't a frontend issue.", 'If QA says the login bug is a frontend issue, investigate.', 'QA says the login bug might be a frontend issue.']) {
+    assert.equal(validateMemoryAnalysis(analysis([claim(quote,fields)]),context(quote,[])).claims.length,0,quote);
+  }
+  const quote='QA says the login bug is not a frontend issue.';
+  assert.equal(validateMemoryAnalysis(analysis([claim(quote,{...fields,value:'not a frontend issue'})]),context(quote,[])).claims.length,1);
+  for (const full of ['According to QA, the login bug is a frontend issue.','The login bug is a frontend issue, according to QA.','QA states the login bug is a frontend issue.']) {
+    const stripped=/[Tt]he login bug is a frontend issue/.exec(full)[0];
+    assert.equal(validateMemoryAnalysis(analysis([claim(stripped,fields)]),context(full,[])).claims.length,0,full);
+  }
+});
+
+test('model-declared unreviewed evidence is retained only when its passage is grounded', () => {
+  const prompt='Archive obsolete tickets after approval.';
+  const result=validateMemoryAnalysis({...analysis([]),unreviewed:[{sourceRef:'prompt',quote:prompt,reason:'Ambiguous policy'},{sourceRef:'prompt',quote:'Invented passage.',reason:'Missing'}]},context(prompt,[]));
+  assert.equal(result.status,'unavailable'); assert.deepEqual(result.coverage.omitted,[{sourceRef:'prompt',quote:prompt}]);
 });

@@ -1,4 +1,4 @@
-import { canonicalFact, memoryValueKey, comparableMemoryFacts } from '../server/memory-analysis.mjs';
+import { canonicalFact, memoryValueKey, comparableMemoryFacts, deterministicAttribute } from '../server/memory-analysis.mjs';
 import { authorityScope, matchingConflictReview } from './conflict-review.js';
 
 const key = fact => {
@@ -51,7 +51,8 @@ export function memoryEvidence(state, incoming, analysis) {
   const byRef = new Map(incoming.map(f => [f.provenance.claimRef, f]));
   const relations = (analysis.relations || []).flatMap(relation => {
     const fact = byRef.get(relation.claimRef);
-    return fact ? [{ ...relation, newFactId: fact.id }] : [];
+    const targetId = relation.targetClaimRef ? byRef.get(relation.targetClaimRef)?.id : relation.factId;
+    return fact && targetId ? [{ ...relation, factId: targetId, newFactId: fact.id }] : [];
   });
   const relevant = new Set(analysis.relevantFactIds || []);
   for (const relation of relations) relevant.add(relation.factId);
@@ -94,9 +95,12 @@ export function memoryEvidence(state, incoming, analysis) {
         }
         const contradicted = groupRelations.some(r => ['contradiction', 'revision'].includes(r.type));
         const normalized = candidates.map(canonicalFact);
-        const deterministic = normalized.every(f => ['date', 'budget', 'owner', 'access'].includes(f.attribute));
+        const deterministic = normalized.every(f => deterministicAttribute(f.attribute));
+        const comparisonIncomplete = !deterministic && candidates.some((left, i) => candidates.slice(i + 1).some(right =>
+          value(left) !== value(right) && !groupRelations.some(r => r.type !== 'uncertain'
+            && (r.newFactId === left.id && r.factId === right.id || r.newFactId === right.id && r.factId === left.id))));
         const conflict = contradicted || (deterministic && new Set(candidates.map(value)).size > 1);
-        groups.push({ subject: candidates[0].subject, candidates, conflict,
+        groups.push({ subject: candidates[0].subject, candidates, conflict, comparisonIncomplete,
           revision: currentRelations.some(r => r.type === 'revision'), relations: groupRelations });
       }
     }

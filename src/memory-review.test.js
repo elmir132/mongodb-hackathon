@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { processPrompt, seedState } from './memory.js';
+import { completedReplayCycle } from './replay-cycle.js';
 import { memoryAnalysisContext, validateMemoryAnalysis } from '../server/memory-analysis.mjs';
 
 const budget = {id:'budget-engineering',subject:'budget',attribute:'budget',scope:'project finance',value:'$20,000',text:'The budget is $20,000.',source:'Engineering',author:'Alex'};
@@ -280,7 +281,7 @@ test('omitted reported shorthand is quoted in the reply and requests clarificati
   const fx=fixture(raw([claim('Marketing says the next release is Wednesday.',{subject:'next release',attribute:'date',scope:'launch readiness',value:'Wednesday'})]));
   const {turn}=await run(initial([]),prompt,fx);
   assert.equal(turn.memoryAnalysis.status,'partial'); assert.match(turn.answer,/Engineering says Thursday/);
-  assert.match(turn.answer,/Please clarify/); assert.doesNotMatch(turn.answer,/Reviewed the supplied update/);
+  assert.match(turn.answer,/clarify any ambiguous/); assert.doesNotMatch(turn.answer,/Reviewed the supplied update/);
 });
 
 test('authority statement opens a fresh explicit question, without a correction or policy update',async()=>{
@@ -372,4 +373,50 @@ test('equivalent access levels and separate resource subjects do not manufacture
     assert.equal(turn.conflictQuestion,null);
     assert.ok(!fx.calls.includes('resolve'));
   }
+});
+
+test('fresh custom-attribute disagreements use the real service contract and wait for a human answer',async()=>{
+  const quotes=['QA says the login bug is a frontend issue.','Backend says the login bug is a backend issue.'];
+  const claims=quotes.map((quote,i)=>claim(quote,{ref:`c${i+1}`,subject:'login bug',attribute:'component',scope:'login bug',value:i?'backend issue':'frontend issue'}));
+  const fx=fixture(raw(claims,[{claimRef:'c1',targetClaimRef:'c2',type:'contradiction'}]));
+  const {turn,state}=await run(initial([]),quotes.join(' '),fx,{author:'Maya'});
+  assert.equal(turn.conflict,true); assert.ok(turn.conflictQuestion); assert.equal(turn.selected,null);
+  assert.deepEqual(turn.candidates.map(f=>f.source),['QA','Backend']);
+  assert.ok(turn.candidates.every(f=>f.submittedBy.author==='Maya'&&!f.author));
+  assert.equal(fx.calls.filter(c=>c==='resolve').length,1); assert.equal(turn.timing.modelCalls,1);
+  assert.match(turn.answer,/frontend issue.*QA/); assert.match(turn.answer,/backend issue.*Backend/);
+  assert.equal(completedReplayCycle(state),null);
+});
+
+test('compatible, equivalent, and incomplete general comparisons do not choose an authority',async()=>{
+  const quotes=['QA says the login bug is a frontend issue.','Backend says the login bug is a client-side issue.'];
+  const claims=quotes.map((quote,i)=>claim(quote,{ref:`c${i+1}`,subject:'login bug',attribute:'component',scope:'login bug',value:i?'client-side issue':'frontend issue'}));
+  for (const type of ['compatible','equivalent','uncertain',null]) {
+    const fx=fixture(raw(claims,type?[{claimRef:'c1',targetClaimRef:'c2',type}]:[]));
+    const {turn,state}=await run(initial([]),quotes.join(' '),fx);
+    assert.equal(turn.conflict,false,type); assert.equal(turn.conflictQuestion,null,type); assert.ok(!fx.calls.includes('resolve'),type);
+    assert.match(turn.answer,/frontend issue/); assert.match(turn.answer,/client-side issue/);
+    if (!type||type==='uncertain') {
+      assert.equal(turn.selected,null); assert.equal(turn.memoryAnalysis.status,'partial');
+      assert.match(turn.answer,/could not establish whether they disagree/); assert.equal(completedReplayCycle(state),null);
+    }
+  }
+});
+
+test('empty broad-claim extraction suppresses an echoed answer and completed replay',async()=>{
+  const prompt='QA says the login bug is a frontend issue. Backend says the login bug is a backend issue.';
+  const fx=fixture(raw()); const original=fx.generate;
+  fx.generate=async input=>({...await original(input),answer:prompt});
+  const {turn,state}=await run(initial([]),prompt,fx);
+  assert.equal(state.facts.length,0); assert.equal(turn.memoryAnalysis.status,'unavailable');
+  assert.match(turn.answer,/Memory checking was incomplete/); assert.ok(!turn.answer.startsWith(prompt));
+  assert.equal(completedReplayCycle(state),null); assert.ok(!fx.calls.includes('resolve'));
+});
+
+test('new status contradictions have peer relationships even when neither claim was previously stored',async()=>{
+  const quotes=['QA says the migration is complete.','Backend says the migration is not complete.'];
+  const claims=quotes.map((quote,i)=>claim(quote,{ref:`c${i+1}`,subject:'migration',attribute:'status',scope:'migration',value:i?'not complete':'complete'}));
+  const fx=fixture(raw(claims,[{claimRef:'c1',targetClaimRef:'c2',type:'contradiction'}]));
+  const {turn}=await run(initial([]),quotes.join(' '),fx);
+  assert.equal(turn.conflict,true); assert.ok(turn.conflictQuestion); assert.equal(fx.calls.filter(c=>c==='resolve').length,1);
 });

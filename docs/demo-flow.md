@@ -113,21 +113,39 @@ Times below start at **Replay internals**, independently of live response latenc
 
 The base choreography totals **65.42 s** including the 1.95 s return. Autoplay scales the event timeline by **1.4743×** to 43.05 s and then performs the return, targeting 45 s. All 39 events remain; grouped save steps retain request, receipt and confirmation. Pausing, inspecting or replaying a step adds time. The [timing evidence](sources/demo-timing-2026-09-26.json) preserves the individual 29-step boundaries and measured request durations.
 
-### Working script for this exact flow
+### Working script aligned to visible operations
 
-This is a first draft of narration cues, not a measured spoken take. Start speaking on Send, react to the question immediately, and let the saved replay drive the rest. The full-demo clock below assumes Replay starts at **0:14.5**; service cues are more reliable than that assumption.
+Supersedes the earlier broad time-block voiceover. Rechecked against the saved optimized memo/correction cycle (`workspace-qa-demo-timing-b6015c8f-6b5f-4f63-a443-0102d0cd3492`): 29 visible steps, 39 events and the same 45 s calculated autoplay. The exact narration below is a draft, not a measured spoken take. Use the changing operation caption as the cue; camera motion can lag or retain the last service during local events. Do not announce a result while only its request is traveling. The short sentences describe the active operation, with results mentioned after their recorded reveal.
 
-| Approximate demo time | Cue | Voiceover |
+**Live chat — follow the UI, not a fixed stopwatch:**
+
+- On **Send**: “I’m asking Chronicle to review Maya’s launch memo. It already remembers earlier project updates.”
+- Once the **conflict question appears**, select Monday and check Remember authority: “There’s a conflict. I choose Engineering and remember its authority.”
+- Submit immediately. Wait quietly for the saved confirmation, then click **Replay internals**. Do not fill this delay by narrating a future result. The visible replay label establishes that these are recorded operations.
+
+**Restart the narration clock at Replay internals.** These are replay-relative seconds, never seconds since Send. Begin each sentence with its operation cue and leave the remaining interval quiet; do not run the lines together. Times are rounded calculated boundaries for this saved cycle, with display overhead possible.
+
+| Replay clock | Visible operation cue | Say |
 | --- | --- | --- |
-| 0:00–0:09 | Send / review pending | “This is Chronicle: self-healing project memory. Maya uploads a launch memo. Chronicle checks it against what the team already knows.” |
-| 0:09–0:14.5 | Question / choose Monday / remember / save | “Engineering says Monday. I confirm it and tell Chronicle to remember Engineering’s authority.” |
-| 0:14.5–0:25.8 | Replay starts / source, model, facts | “Here’s the recorded process. Atlas preserves the original memo. The model proposes claims; Chronicle validates them and finds Friday conflicts with Engineering’s earlier Monday update.” |
-| 0:25.8–0:32.8 | Engine / Voyage / Vector Search | “Voyage embeds the conflict. Atlas searches this project’s past lessons. There isn’t an applicable lesson yet.” |
-| 0:32.8–0:41.4 | Policy v1 / original resolution saved | “The starting policy favors Marketing. Chronicle keeps that decision and its evidence, then asks for a human answer.” |
-| 0:41.4–0:48.9 | Human correction / embedding / storage | “My correction becomes a scoped precedent. Voyage embeds it, and Atlas stores it for future retrieval.” |
-| 0:48.9–1:00 | Readiness / policy v2 / Monday / return | “Chronicle verifies it’s searchable and saves policy version two. Monday is now the answer, with the earlier history preserved. Human feedback becomes persistent project memory.” |
+| 0.3–2.7 s | Saving the original memo · Atlas | “Atlas stores the original memo.” |
+| 2.7–5.8 s | Model request → response → claim validation | “The AI reviews it and extracts claims.” |
+| 5.8–8.1 s | Saving the incoming fact · Atlas | “Atlas stores the Friday claim.” |
+| 8.1–11.3 s | Existing memory → conflict → read saved evidence | “Stored evidence says Monday. The dates conflict.” |
+| 11.3–13.6 s | Prepare stored conflict · engine | “The engine prepares the conflict.” |
+| 13.6–16.0 s | Embed conflict query · Voyage | “Voyage embeds the search query.” |
+| 16.0–18.3 s | Atlas Vector Search | “Vector Search checks past lessons.” |
+| 18.3–20.6 s | Resolution engine · policy v1 | “Without one, policy favors Marketing.” |
+| 20.6–23.8 s | Save engine resolution → selected Friday | “Atlas records that original decision.” |
+| 23.8–26.9 s | Save conversation response → return original answer | “The review and evidence are saved.” |
+| 26.9–29.8 s | Human answer → convert to scoped precedent | “Now my correction becomes a scoped lesson.” |
+| 29.8–32.1 s | Embed saved precedent · Voyage | “Voyage embeds the new lesson.” |
+| 32.1–34.4 s | Save precedent embedding · Atlas | “Atlas stores its vector.” |
+| 34.4–36.7 s | Check precedent retrieval readiness | “Search checks that it’s retrievable.” |
+| 36.7–39.0 s | Save human decision/policy version → confirmed answer | “Atlas saves policy version two.” |
+| 39.0–42.2 s | Apply human answer → selected Monday → decision/evidence save | “Monday becomes the answer. Evidence is retained.” |
+| 42.2–45.4 s | Return corrected answer → flatten/zoom into terminal | “Back to chat—with the correction remembered.” |
 
-Do not claim a second release was reviewed or Thursday was chosen in this minute. The five-minute extension demonstrates that later application with its recorded precedent ID. No application timing or runtime behavior was changed for this measurement.
+The correction portion begins around **replay +27 s**, the versioned policy is saved around **replay +37–39 s**, and the corrected answer returns around **replay +42–43 s**. Do not shift these to fixed whole-demo timestamps: live review and human interaction determine when replay starts. Do not claim a second release was reviewed or Thursday was chosen. The five-minute extension demonstrates later application with its recorded precedent ID. This script correction changes no runtime or replay timing.
 
 ## Suggested five-minute sequence
 

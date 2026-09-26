@@ -201,7 +201,7 @@ export async function processPrompt(previous, prompt, source, persist, generate,
       applied = selected ? lesson.id : null;
     } else if (inScope && conflict) {
       selected = [...candidates].reverse().find(fact => fact.source === 'Marketing') || null;
-    } else if (candidates.length && !conflict) selected = candidates.at(-1);
+    } else if (candidates.length && !conflict && !evidenceGroups[0]?.comparisonIncomplete) selected = candidates.at(-1);
     if (!engineResolution) emit('policy', previousReview ? 'Use the saved human answer' : applied ? 'Scoped precedent applied' : state.lesson && conflict && !inScope ? 'Launch lesson is out of scope' : 'Evaluate the current policy', previousReview ? 'The same evidence was already reviewed; retain the saved human choice without asking again.' : applied ? 'Same project + launch readiness. Engineering’s stored claim is selected.' : conflict && inScope ? 'Policy v1 prioritizes Marketing. No precedent applied.' : conflict ? 'No authority rule supports a choice here. Ask a human.' : 'Do not invent conflicts or apply an unnecessary precedent.', { applied, ...(previousReview ? { humanReview: previousReview.resolutionTurnId } : {}) });
     const saved = incoming.length ? `I saved ${incoming.map(fact => `${fact.source}’s ${fact.value} claim`).join(' and ')}. ` : '';
     if (selected) {
@@ -255,15 +255,17 @@ export async function processPrompt(previous, prompt, source, persist, generate,
     const task = reviewTask(prompt, attachments);
     const transformed = task.sourceTask && modelResult?.answer?.trim();
     const prose = lookup ? '' : task.sourceTask ? (transformed ? `**${task.label}:**\n\n${transformed}` : 'The requested text could not be produced. Please try again.')
-      : (conflict || savedReview || task.kind === 'review' || ['partial', 'unavailable'].includes(analysis.status)) ? comments : modelResult?.answer;
-    const factual = !summary && candidates.length && selected && !attachments.length ? `Recorded ${subject}: **${selected.value}** (${sourceLabel(selected)}).` : '';
+      : (conflict || savedReview || task.kind === 'review' || incoming.length || ['partial', 'unavailable'].includes(analysis.status)) ? comments : modelResult?.answer;
+    const factual = !summary && incoming.length ? `Recorded ${incoming.map(fact => `**${fact.subject}**: ${fact.value} (${sourceLabel(fact)})`).join('; ')}.`
+      : !summary && candidates.length && selected && !attachments.length ? `Recorded ${subject}: **${selected.value}** (${sourceLabel(selected)}).` : '';
     answer = (task.sourceTask ? [prose, summary] : [summary || factual, prose]).filter(Boolean).join('\n\n')
       || (incoming.length ? 'I saved the source-backed project claims.' : analysis.status === 'unavailable' ? 'Your original message and documents are retained.' : attachments.length ? 'I reviewed the document; no supported memory conflict was detected in this check.' : 'No saved answer is available.');
     if (analysis.status === 'unavailable' || analysis.status === 'partial') {
       const omitted = analysis.coverage?.omitted || [];
       const excerpts = omitted.slice(0, 3).map(item => `> ${item.quote.replaceAll('\n', ' ')}`).join('\n\n');
-      answer += `\n\n${omitted.length || analysis.status === 'partial' ? 'Memory checking was incomplete: some possible claims were not validated.' : 'Memory checking was unavailable for this reply.'} ${incoming.length ? 'Only the validated claims were saved.' : 'No new facts were saved.'}${excerpts ? `\n\nNot validated:\n\n${excerpts}\n\nPlease clarify these claims with an explicit source, subject, and value, then retry the memory check.` : ' Please retry the memory check.'}`;
+      answer += `\n\n${omitted.length || analysis.status === 'partial' ? 'Memory checking was incomplete: some possible claims were not validated.' : 'Memory checking was unavailable for this reply.'} ${incoming.length ? 'Only the validated claims were saved.' : 'No new facts were saved.'}${excerpts ? `\n\nNot validated:\n\n${excerpts}\n\nI could not validate these passages. Try the check again or clarify any ambiguous subject, source, or value.` : ' Please retry the memory check.'}`;
     }
+    if (analysis.coverage?.uncompared?.length) answer += `\n\nI retained the claims but could not establish whether they disagree about ${[...new Set(analysis.coverage.uncompared.map(pair => pair.subject))].join(', ')}. No source of truth was selected for those comparisons.`;
     if (conflictRecords.length) answer += '\n\n' + conflictRecords.slice(1).map(group => decisionSummary({ ...group, savedReview: matchingConflictReview(state, group.candidates) })).join('\n\n');
   }
   emit('resolve', selected ? `Selected ${selected.value}` : reviewedTurn ? 'Left unresolved' : correction ? 'Lesson recorded' : conflict ? 'Human input needed' : 'Answer prepared', answer);

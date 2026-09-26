@@ -151,6 +151,27 @@ def evidence_scope(facts):
     return scopes.pop()
 
 
+REPORTER_NAME = r'[A-Za-z][A-Za-z0-9 &-]{0,59}?'
+REPORTING_VERB = r'(?:says|said|reports|reported|states|stated|claims|claimed|thinks|believes|confirms|confirmed|insists)'
+
+
+def reported_source(quote):
+    text = re.sub(r'^(?:[-*]\s+|\d+[.)]\s+)', '', quote.strip())
+    patterns = [rf'^({REPORTER_NAME})\s+{REPORTING_VERB}\s+',
+                rf'^According to\s+({REPORTER_NAME}),\s*',
+                rf',\s*according to\s+({REPORTER_NAME})[.!]?\s*$',
+                rf'^({REPORTER_NAME}):\s+']
+    for pattern in patterns:
+        match = re.search(pattern, text, re.I)
+        if match:
+            return match.group(1).strip()
+    return None
+
+
+def reporter_count(quote):
+    return len(re.findall(rf'\b{REPORTING_VERB}\b|\baccording to\b', quote, re.I)) or int(bool(reported_source(quote)))
+
+
 def validate_claim_provenance(state):
     """Check retained evidence at the save boundary without reinterpreting it."""
     turns = {turn.get('id'): turn for turn in state['turns']}
@@ -179,13 +200,13 @@ def validate_claim_provenance(state):
             raise HTTPException(400, 'Extracted claim evidence and source must match the retained original.')
         reporter = provenance.get('reportedSource')
         if reporter is not None:
-            match = re.match(r'^([A-Za-z][A-Za-z0-9 &-]{0,59}?)\s+(?:says|said|reports|reported)\s+', quote.strip(), re.I)
+            retained_reporter = reported_source(quote)
             submitted = {'source': turn.get('source')}
             if turn.get('author'):
                 submitted['author'] = turn['author']
-            if (not match or reporter != match.group(1).strip() or fact.get('source') != reporter
+            if (reporter != retained_reporter or fact.get('source') != reporter
                     or fact.get('author') or fact.get('submittedBy') != submitted
-                    or len(re.findall(r'\b(?:says|said|reports|reported)\b', quote, re.I)) != 1):
+                    or reporter_count(quote) != 1):
                 raise HTTPException(400, 'Reported claims require explicit attribution and a separate recorded submitter.')
         elif fact.get('source') != turn.get('source'):
             raise HTTPException(400, 'Extracted claim source must match its sender or explicit reported attribution.')
@@ -193,7 +214,8 @@ def validate_claim_provenance(state):
         if context is not None:
             # Both slices stay verbatim, including their internal line wraps;
             # only whitespace may separate the adjacent context and claim.
-            adjacent = isinstance(context, str) and bool(context.strip()) and re.search(re.escape(context) + r'\s+' + re.escape(quote), text)
+            adjacent = isinstance(context, str) and bool(context.strip()) and re.search(
+                re.escape(context) + r'(?:\s+|;\s*|,?\s+(?:but|while|whereas)\s+)' + re.escape(quote), text, re.I)
             if not reporter or not adjacent:
                 raise HTTPException(400, 'Shorthand claims require the immediately preceding source passage.')
 
