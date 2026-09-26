@@ -5,18 +5,72 @@ Similarity alone must **not** establish whether a precedent applies.
 
 ---
 
-## Function Sahil should host / Elmir should call
+## Live HTTP contract (Maxime + Danny + Sahil)
+
+**Human learning corrections go to `POST /state/correct`. `POST /override` is
+only a key-value note and does not create a precedent or change policy.**
+Both resolution and correction require `context.scope` and `context.subject`.
+Missing or empty keys return HTTP 422; a correction with mismatched saved
+scope/subject is rejected. Do not infer a default domain.
+
+```json
+POST /state
+{
+  "conflict_text": "Marketing targets Friday; Engineering readiness is Monday.",
+  "project_id": "chronicle-demo",
+  "context": {"scope": "launch-readiness", "subject": "launch", "conflict_id": "c1"}
+}
+```
+
+```json
+POST /state/correct
+{
+  "correct_fact_id": "<supporting fact ID from the saved resolution>",
+  "reason": "Engineering owns launch readiness.",
+  "context": {"scope": "launch-readiness", "subject": "launch", "conflict_id": "c1"}
+}
+```
+
+The terminal uses these same endpoints through the localhost Vite `/api` proxy.
+For durable, isolated chats it additionally supplies `context.workspace_id`
+(equal to `project_id`), `context.conflict_id`, and on resolve `context.fact_ids`.
+Correction supplies `context.request_id` and `context.remember_authority`.
+Only the explicit Engineering readiness choice sets `remember_authority: true`;
+other choices preserve policy. `correct_fact_id: null` is the workspace UI’s
+explicit leave-unresolved decision. Responses retain the `StateResponse`
+envelope (`revision`, `value`, `overrides`, `updated_at`); workspace `value`
+contains `resolution`, `policy`, `lesson`, ordered `trace`, and correction
+`retrievalReady`. Workspace save/load are `/api/ledger/save` and
+`/api/ledger/load`; there is no separate ledger correction endpoint.
+
+## Actual retrieval call path
+
+`POST /state` → backend orchestration → `DannyPrecedentRetriever.retrieve()` →
+`find_matching_precedent()` → Voyage query embedding → Atlas Vector Search →
+candidate dictionaries → `ElmirResolutionEngine.resolve(precedents=...)`.
+
+**The engine adapter consumes the supplied candidates. It does not launch a
+second retrieval call.** Its core engine callback returns that existing list.
+The workspace path restores the durable policy and disables the generic
+adapter’s session-local candidate shortcut. Only committed, actually searched
+precedents may be used there; no fixed similarity scores are invented.
+
+The same `OrchestrationService.resolve_candidates()` handles upstream retrieval
+for generic state and workspace persistence. The workspace path wraps Danny’s
+function and store boundaries solely to record measured receipts. Corrections
+embed a new precedent as a document, persist it and the versioned policy, then
+check actual index availability before reporting retrieval readiness.
+
+## Function hosted behind DannyPrecedentRetriever
 
 ```python
-from retrieval import find_matching_precedent, load_seed_store, embed_text
-
-# Until Atlas has real precedents with embeddings:
-load_seed_store(use_voyage=True)  # needs VOYAGE_API_KEY
-
+# Called once by the upstream adapter, not again inside the resolution engine.
+from retrieval import find_matching_precedent
 candidates = find_matching_precedent(conflict_text, project_id, as_dicts=True)
 ```
 
-Prefer **`as_dicts=True`** for HTTP/JSON and for Elmir's `Precedent.from_candidate`.
+Prefer `as_dicts=True` for HTTP/JSON and `Precedent.from_candidate`.
+Offline/seed helpers are for labeled tests only; they are not the live pipeline.
 
 ### INPUT
 
@@ -80,8 +134,8 @@ Empty list `[]` when nothing useful is in-scope.
 
 Elmir's resolution engine on `main` **already matches this contract**:
 
-- Injects a retriever with Danny's signature:  
-  `retrieve(conflict_text, project_id, as_dicts=True)`
+- The core engine accepts a retriever callback; in the live backend adapter it
+  returns candidates already fetched by upstream orchestration
 - Adapts candidates via `Precedent.from_candidate`
 - Treats `score` as evidence only; applicability is decided in the engine
 
@@ -95,10 +149,12 @@ Elmir's resolution engine on `main` **already matches this contract**:
 | `constraints.overruled_source` | `losing_source` |
 | `score` | similarity evidence only |
 
-Shared demo project id: **`chronicle-demo`**.
+The generic seeded demo uses **`chronicle-demo`**. The terminal uses a stable
+`workspace-*` ID as its project scope so resets and separate demo runs cannot
+leak precedents into each other.
 
-At integration, Sahil/Elmir pass `retrieval.find_matching_precedent` into  
-`resolve_conflict(..., retrieve=...)` instead of `make_stub_retriever`.
+Do not pass a second live retrieval function into the engine from this backend.
+`DannyPrecedentRetriever` has already fetched its `precedents` argument.
 
 ---
 
@@ -118,7 +174,7 @@ At integration, Sahil/Elmir pass `retrieval.find_matching_precedent` into
 6. When persisting corrections, use Elmir's `Precedent.to_stored_document()` shape
    and fill `embedding` via `embed_text(..., input_type="document")` (or `embed_documents`).
 
-Suggested API shape (Sahil owns the HTTP layer):
+Optional standalone retrieval API example (not a currently implemented route):
 
 ```http
 POST /precedents/search

@@ -112,6 +112,7 @@ def find_matching_precedent(
     config: RetrievalConfig | None = None,
     store: PrecedentStore | None = None,
     as_dicts: bool = False,
+    embed_fn: Callable[..., list[float]] | None = None,
 ) -> list[PrecedentCandidate] | list[dict[str, Any]]:
     """Retrieve candidate precedents for a conflict within a project.
 
@@ -127,6 +128,8 @@ def find_matching_precedent(
         config: Optional config override.
         store: Optional store override (else module default / env backend).
         as_dicts: If True, return plain dicts for easy JSON serialization.
+        embed_fn: Optional request-local embedding wrapper for backend receipts;
+            the normal Voyage helper remains the default.
 
     Returns:
         Ranked list of candidates (highest similarity first). Empty list when
@@ -157,7 +160,9 @@ def find_matching_precedent(
     except (TypeError, ValueError) as exc:
         raise ValueError("min_score must be a number") from exc
 
-    if _embed_fn is not None:
+    if embed_fn is not None:
+        query_vec = embed_fn(conflict_text)
+    elif _embed_fn is not None:
         query_vec = _embed_fn(conflict_text)
     else:
         query_vec = embed_text(conflict_text, input_type="query", config=cfg)

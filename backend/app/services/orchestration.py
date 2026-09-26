@@ -16,7 +16,17 @@ class OrchestrationService:
         project_id: str,
         context: dict[str, Any],
     ) -> dict:
-        facts = self.repository.list_facts()
+        value = self.resolve_candidates(
+            facts=self.repository.list_facts(), conflict_text=conflict_text,
+            project_id=project_id, context=context,
+        )
+        return self.repository.save_state(value)
+
+    def resolve_candidates(self, *, facts, conflict_text, project_id, context) -> dict:
+        """One upstream retrieval, then pass candidates into Elmir's adapter.
+
+        Shared by generic state and durable workspace persistence paths.
+        """
         precedents = self.retriever.retrieve(
             conflict_text=conflict_text,
             project_id=project_id,
@@ -31,7 +41,7 @@ class OrchestrationService:
             precedents=precedents,
             context=resolution_context,
         )
-        return self.repository.save_state(value)
+        return value
 
     def correct_state(
         self,

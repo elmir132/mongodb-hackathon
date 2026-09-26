@@ -75,7 +75,7 @@ def test_state_run_uses_integrations_and_keeps_override_separate() -> None:
             json={
                 "conflict_text": "Should this change be approved?",
                 "project_id": "project-1",
-                "context": {"case_id": "c-1"},
+                "context": {"case_id": "c-1", "scope": "review", "subject": "Ada"},
             },
         )
         override = client.post(
@@ -88,7 +88,7 @@ def test_state_run_uses_integrations_and_keeps_override_separate() -> None:
     assert facts[0]["subject"] == "Ada"
     assert precedents == [{"precedent_id": "p-1"}]
     assert context == {
-        "case_id": "c-1",
+        "case_id": "c-1", "scope": "review", "subject": "Ada",
         "conflict_text": "Should this change be approved?",
         "project_id": "project-1",
     }
@@ -122,7 +122,7 @@ def test_danny_adapter_calls_exact_function_with_json_dicts() -> None:
 
 def test_atlas_mode_requires_voyage_key_for_real_retrieval() -> None:
     try:
-        create_app(Settings(precedent_store="atlas"))
+        create_app(Settings(_env_file=None, precedent_store="atlas", voyage_api_key=None))
     except ValueError as error:
         assert "VOYAGE_API_KEY" in str(error)
     else:
@@ -189,7 +189,7 @@ def test_full_chronicle_loop_through_real_engine() -> None:
         correction = client.post("/state/correct", json={
             "correct_fact_id": engineering_fact_id,
             "reason": "Engineering owns launch readiness decisions.",
-            "context": {},
+            "context": {"scope": "launch-readiness", "subject": "launch"},
         })
         assert correction.status_code == 200
         corr_value = correction.json()["value"]
@@ -224,6 +224,66 @@ def test_correct_state_returns_501_without_a_real_engine() -> None:
     )
     with TestClient(app) as client:
         response = client.post("/state/correct", json={
-            "correct_fact_id": "whatever", "reason": "why", "context": {},
+            "correct_fact_id": "whatever", "reason": "why", "context": {"scope": "launch-readiness", "subject": "launch"},
         })
     assert response.status_code == 501
+
+
+def test_resolution_and_correction_require_context_keys():
+    with make_client() as client:
+        for context in ({}, {'scope': 'launch-readiness'}, {'subject': 'launch'}):
+            resolution = client.post('/state', json={'conflict_text': 'Friday vs Monday', 'project_id': 'test', 'context': context})
+            correction = client.post('/state/correct', json={'correct_fact_id': 'fact', 'reason': 'Readiness', 'context': context})
+            assert resolution.status_code == 422
+            assert correction.status_code == 422
+
+
+def test_workspace_canonical_correction_learns_and_override_does_not(monkeypatch):
+    from app.api import ledger
+    from retrieval.offline_embed import offline_embed
+    monkeypatch.delenv('MONGODB_URI', raising=False)
+    monkeypatch.setattr(ledger, 'MEMORY', {})
+    monkeypatch.setattr(ledger, 'STORES', {})
+    embedding_calls = []
+    def embedding(text, **kwargs):
+        embedding_calls.append(kwargs['input_type'])
+        return offline_embed(text)
+    monkeypatch.setattr(ledger, 'embed_text', embedding)
+    workspace = 'workspace-contract-test'
+    facts = [
+        {'id': 'm', 'subject': 'launch', 'scope': 'launch readiness', 'source': 'Marketing', 'text': 'Launch is Friday', 'value': 'Friday'},
+        {'id': 'e', 'subject': 'launch', 'scope': 'launch readiness', 'source': 'Engineering', 'text': 'Launch is Monday', 'value': 'Monday'},
+    ]
+    context = {'workspace_id': workspace, 'conflict_id': 'c1', 'scope': 'launch-readiness', 'subject': 'launch', 'fact_ids': ['m', 'e']}
+    with make_client() as client:
+        assert client.post('/api/ledger/save', json={'workspaceId': workspace, 'state': {'facts': facts, 'notes': [], 'turns': []}}).status_code == 200
+        first = client.post('/state', json={'project_id': workspace, 'conflict_text': 'Friday vs Monday', 'context': context})
+        assert first.status_code == 200, first.text
+        assert first.json()['value']['resolution']['selected_fact_id'] == 'm'
+        assert embedding_calls == ['query'], 'Exactly one upstream retrieval; the engine must not embed again'
+        client.post('/override', json={'key': 'readiness', 'value': 'Engineering', 'reason': 'Note only'})
+        assert ledger.read(workspace)['policy']['version'] == 1
+        corrected = client.post('/state/correct', json={'correct_fact_id': 'e', 'reason': 'Engineering owns readiness.', 'context': {**context, 'remember_authority': True}})
+        assert corrected.status_code == 200, corrected.text
+        assert corrected.json()['value']['policy'] == 2
+        assert corrected.json()['value']['retrievalReady'] is True
+        assert embedding_calls == ['query', 'document']
+        # All correction routes have moved to /state/correct.
+        assert client.post('/api/ledger/correct', json={}).status_code == 404
+        bad_context = client.post('/state/correct', json={'correct_fact_id': 'e', 'reason': 'wrong domain', 'context': {**context, 'scope': 'budget'}})
+        assert bad_context.status_code == 400
+        again = client.post('/state', json={'project_id': workspace, 'conflict_text': 'Friday vs Monday', 'context': {**context, 'conflict_id': 'c2'}})
+        assert again.status_code == 200
+        assert again.json()['value']['resolution']['applied_precedent_id'] == corrected.json()['value']['lesson']['id']
+        assert embedding_calls == ['query', 'document', 'query']
+
+
+def test_undated_claims_do_not_get_artificial_recency_from_iteration_order():
+    from app.integrations.elmir_engine import ElmirResolutionEngine
+    adapter = ElmirResolutionEngine(include_session_precedents=False)
+    result = adapter.resolve(facts=[
+        {'id': 'budget-m', 'subject': 'budget', 'predicate': 'amount', 'value': 100, 'source': 'Marketing'},
+        {'id': 'budget-e', 'subject': 'budget', 'predicate': 'amount', 'value': 200, 'source': 'Engineering'},
+    ], precedents=[], context={'scope': 'budget', 'subject': 'budget', 'project_id': 'test'})
+    assert result['resolution']['status'] == 'unresolved'
+    assert result['resolution']['selected_fact_id'] is None

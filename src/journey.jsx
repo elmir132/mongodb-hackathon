@@ -1,59 +1,70 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { STORAGE_KEY, seedState, processPrompt } from './memory.js';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { STORAGE_KEY, seedState, processPrompt, DEMO_MEMBERS, sourceLabel } from './memory.js';
 import './styles.css';
+import './conversation.css';
+import { normalizeConversations, turnsForChat, titleConversation } from './conversations.js';
+import { recoverDraftAfterFailure } from './composer-draft.js';
+import AutoTextarea from './auto-textarea.jsx';
+import ConflictQuestion from './conflict-question.jsx';
+import { authorityLabel, findConflictTurn, needsConflictReview, currentConflictQuestion } from './conflict-review.js';
+import PendingReply from './pending-reply.jsx';
+import { hasSavedDecision } from './decision-status.js';
+import MessageContent from './message-content.jsx';
+import ModelSelector from './model-selector.jsx';
+import ReplayScene from './replay-scene.jsx';
+import { completedReplayCycle, buildCycleReplaySteps } from './replay-cycle.js';
+import { workspaceId, newWorkspaceId, selectWorkspace, serviceRequest, liveServices } from './services.js';
 import exampleMemo from './fixtures/launch-memo.md?raw';
 
 const FIRST_PROMPT = 'Can you review this launch memo before I share it with the team?';
 const sampleMemo = () => ({ name: 'Atlas launch — marketing memo.md', text: exampleMemo, example: true });
-const CORRECTION = 'Engineering owns launch readiness for this project.';
 function readMemory() {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
-    if (!saved) return { state: seedState(), error: '' };
+    if (!saved) return { state: normalizeConversations(seedState()), error: '' };
     const state = JSON.parse(saved);
     if (state.version !== 3 || !Array.isArray(state.facts) || !Array.isArray(state.turns)) throw new Error('Unrecognized local memory');
     state.documents ||= [];
     state.facts = state.facts.map(fact => fact.id === 'fact-seed-engineering' ? { document: 'Release readiness update', sourceDate: '2026-09-18', ...fact } : fact);
-    return { state, error: '' };
-  } catch { return { state: seedState(), error: 'Local memory could not be read. Reset the local demo to start over; nothing has been reported as saved.' }; }
-}
-const widePaths = {
-  ingest: 'M320 435 H290',
-  lookup: 'M185 325 V285 Q185 270 205 270 H385 V255',
-  factwrite: 'M385 255 V270 H205 Q185 270 185 285 V325',
-  evaluate: 'M515 160 H720',
-  decide: 'M980 155 H1030 Q1050 155 1050 175 V325',
-  archive: 'M1050 520 V675 Q1050 687 1030 687 H205 Q185 687 185 667 V525',
-  respond: 'M940 435 H880',
-};
-const compactPaths = {
-  ingest: 'M145 735 H130 Q115 735 115 715 V515',
-  lookup: 'M135 315 V295 Q135 285 155 285 H220 V265',
-  factwrite: 'M220 265 V285 H155 Q135 285 135 295 V315',
-  evaluate: 'M345 170 H500',
-  decide: 'M760 170 H795 Q810 170 810 190 V295 Q810 305 790 305 H715 V315',
-  archive: 'M715 510 V565 Q715 580 695 580 H160 Q135 580 135 565 V515',
-  respond: 'M710 510 V600',
-};
-const routeFor = { receive: 'ingest', write: 'ingest', recall: 'lookup', extract: 'lookup', policy: 'evaluate', resolve: 'decide', commit: 'archive', generate: 'decide', respond: 'respond' };
-const storageStages = ['write', 'saved', 'commit', 'committed'];
-function Flow({ compact, event, running, replayKey }) {
-  const routes = compact ? compactPaths : widePaths;
-  const active = event?.stage === 'write' && event.entity === 'extracted-facts' ? 'factwrite' : routeFor[event?.stage];
-  return <svg className="flow-lines" viewBox={compact ? '0 0 850 1000' : '0 0 1200 700'} aria-hidden="true">
-    <defs><filter id="packet-glow" x="-250%" y="-250%" width="600%" height="600%"><feGaussianBlur stdDeviation="4"/></filter></defs>
-    {Object.entries(routes).map(([key, path]) => <g className={`wire ${active === key ? 'active' : ''} ${key === 'archive' || key === 'ingest' ? 'storage-wire' : ''}`} key={key}><path d={path}/>{active === key && running && <g className="packet" key={`${replayKey}-${event.id}`}><circle r="9" filter="url(#packet-glow)"><animateMotion dur="1.5s" repeatCount="indefinite" path={path}/></circle><circle r="3"><animateMotion dur="1.5s" repeatCount="indefinite" path={path}/></circle></g>}</g>)}
-  </svg>;
+    return { state: normalizeConversations(state), error: '' };
+  } catch { return { state: normalizeConversations(seedState()), error: 'Local memory could not be read. Reset the local demo to start over; nothing has been reported as saved.' }; }
 }
 
 function App() {
   const [initial] = useState(readMemory);
   const [memory, setMemory] = useState(initial.state);
   const [error, setError] = useState(initial.error);
-  const [input, setInput] = useState(initial.state.turns.length ? '' : FIRST_PROMPT);
+  const [serviceState, setServiceState] = useState(null);
+  const [serviceLoading, setServiceLoading] = useState(true);
+  const services = serviceState && liveServices(serviceState.workspaceId, serviceState);
+  useEffect(() => {
+    let cancelled = false;
+    async function connect() {
+      try {
+        const id = workspaceId();
+        let result = await serviceRequest('load', { workspaceId: id });
+        if (!result.state) {
+          await serviceRequest('save', { workspaceId: id, state: initial.state, operation: 'Initialize labeled example workspace' });
+          result = await serviceRequest('load', { workspaceId: id });
+        }
+        if (cancelled) return;
+        const state = normalizeConversations(result.state);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); setMemory(state);
+        setServiceState({ ...result.services, workspaceId: id });
+      } catch (failure) { if (!cancelled) setError(failure.message || 'Service backend unavailable. Start npm run backend, then reload.'); }
+      finally { if (!cancelled) setServiceLoading(false); }
+    }
+    connect();
+    return () => { cancelled = true; };
+  }, []);
+  const [input, setInput] = useState('');
   const [source, setSource] = useState('Marketing');
-  const [attachments, setAttachments] = useState(initial.state.turns.length ? [] : [sampleMemo()]);
+  const [attachments, setAttachments] = useState([]);
   const [documentPreview, setDocumentPreview] = useState(null);
+  const draftsRef = useRef({});
+  const composerDraftRef = useRef(null);
+  composerDraftRef.current = { input, attachments, source };
+  const chatTurns = turnsForChat(memory);
   const fileRef = useRef(null);
   const documentRef = useRef(null);
   useEffect(() => { if (documentPreview) documentRef.current?.showModal(); else if (documentRef.current?.open) documentRef.current.close(); }, [documentPreview]);
@@ -61,13 +72,19 @@ function App() {
     if (!file) return;
     if (!/\.(txt|md)$/i.test(file.name)) { setError('Attach a plain-text (.txt) or Markdown (.md) memo. PDF and Word adapters can be added when those document services are connected.'); return; }
     if (file.size > 100_000) { setError('For this local demo, attach a memo smaller than 100 KB.'); return; }
-    try { const text = await file.text(); setAttachments([{ name: file.name, text, example: false }]); if (!input.trim()) setInput(FIRST_PROMPT); setError(''); }
+    try { const text = await file.text(); setAttachments([{ name: file.name, text, example: false }]); setInput(current => current.trim() ? current : 'Can you review this document before I share it with the team?'); setError(''); }
     catch { setError('The memo could not be read. Try a plain-text or Markdown copy.'); }
   }
-  function useExample() { setAttachments([sampleMemo()]); setInput(FIRST_PROMPT); setAttachments([sampleMemo()]); setSource('Marketing'); setError(''); inputRef.current?.focus({ preventScroll: true }); }
+  function useExample() { setAttachments([sampleMemo()]); setInput(FIRST_PROMPT); setSource('Marketing'); setError(''); inputRef.current?.focus({ preventScroll: true }); }
   const [busy, setBusy] = useState(false);
+  const [pendingTurn, setPendingTurn] = useState(null);
+  const [conflictQuestion, setConflictQuestion] = useState(null);
+  const [reviewError, setReviewError] = useState('');
+  const [dismissedConflicts, setDismissedConflicts] = useState([]);
+  const submittingRef = useRef(false);
   const [selection, setSelection] = useState('codex');
   const [providers, setProviders] = useState([]);
+  const [memoryReviewEnabled, setMemoryReviewEnabled] = useState(true);
   const [connecting, setConnecting] = useState(false);
   const [connectionError, setConnectionError] = useState('');
   const [connectionBusy, setConnectionBusy] = useState(false);
@@ -78,7 +95,7 @@ function App() {
   const provider = selection.split(':')[0];
   const selectedModel = selection.includes(':') ? selection.slice(selection.indexOf(':') + 1) : '';
   const providerNames = { codex: 'OpenAI / Codex', openai: 'OpenAI', anthropic: 'Claude', compatible: 'Custom provider' };
-  useEffect(() => { fetch('/api/providers').then(response => response.json()).then(data => setProviders(data.providers || [])).catch(() => setError('Start the local dev server to connect a model.')); }, []);
+  useEffect(() => { fetch('/api/providers').then(response => response.json()).then(data => { setProviders(data.providers || []); setMemoryReviewEnabled(data.memoryReview !== false); }).catch(() => setError('Start the local dev server to connect a model.')); }, []);
   useEffect(() => { if (connecting) connectionRef.current?.showModal(); else if (connectionRef.current?.open) connectionRef.current.close(); }, [connecting]);
   function openConnection() { setModelId(selectedModel || providers.find(item => item.id === provider)?.model || ''); setConnectionError(''); setConnecting(true); }
   async function saveConnection(event) {
@@ -90,124 +107,144 @@ function App() {
     } catch (error) { setConnectionError(error.message); } finally { setConnectionBusy(false); }
   }
   async function requestAnswer(context) {
-    const response = await fetch('/api/respond', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Chronicle-Request': '1' }, body: JSON.stringify({ ...context, state: { ...context.state, documents: [], turns: context.state.turns.filter(turn => turn.answer).slice(-8).map(turn => ({ prompt: turn.prompt, answer: turn.answer })) }, provider, model: selectedModel }) });
+    const response = await fetch('/api/respond', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Chronicle-Request': '1' }, body: JSON.stringify({ ...context, state: { ...context.state, documents: [], conversations: undefined, turns: context.state.turns.filter(turn => turn.answer).slice(-8).map(turn => ({ id: turn.id, prompt: turn.prompt, answer: turn.answer })) }, provider, model: selectedModel }) });
     const data = await response.json(); if (!response.ok) throw new Error(data.error || 'The model request failed.'); return data;
   }
   const [replay, setReplay] = useState(null);
   const [cursor, setCursor] = useState(0);
   const [playing, setPlaying] = useState(false);
-  const [replayKey, setReplayKey] = useState(0);
-  const [camera, setCamera] = useState({ wide: 1, close: 1, compact: false });
-  const stageRef = useRef(null);
+  const [playMode, setPlayMode] = useState('auto');
+  const [replayRun, setReplayRun] = useState(0);
+  const [returning, setReturning] = useState(false);
+  const finishReplay = useCallback(() => { setPlaying(false); setReturning(false); setReplay(null); }, []);
   const transcriptRef = useRef(null);
   const inputRef = useRef(null);
   const expanded = Boolean(replay);
-  const event = replay?.trace[cursor];
-  const traceDone = replay && cursor === replay.trace.length - 1 && !playing;
+  const replaySteps = useMemo(() => buildCycleReplaySteps(replay), [replay]);
+  const step = replaySteps[cursor];
+  const replayTurn = step?.turn || replay?.turns[0] || null;
+  const event = step?.event;
+  const traceDone = replay && cursor === replaySteps.length - 1 && !playing;
 
-  useLayoutEffect(() => {
-    const measure = () => {
-      const { width, height } = stageRef.current.getBoundingClientRect();
-      const compact = width / height < 1.25;
-      setCamera({ compact, wide: Math.min(width / (compact ? 850 : 1200), height / (compact ? 1000 : 700)) * .94, close: Math.min(width * .88 / 560, height * .9 / 355) });
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(stageRef.current);
-    return () => observer.disconnect();
+  const completePlayback = useCallback(action => {
+    setPlaying(false);
+    if (action === 'return') setReturning(true);
   }, []);
 
   useEffect(() => {
-    if (!playing || !replay) return;
-    const timer = setTimeout(() => {
-      if (cursor < replay.trace.length - 1) setCursor(cursor + 1);
-      else setPlaying(false);
-    }, cursor === 0 ? 2300 : 1750);
-    return () => clearTimeout(timer);
-  }, [playing, replay, cursor]);
+    if (transcriptRef.current) transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
+  }, [chatTurns.length, memory.activeChatId, pendingTurn?.id, busy, expanded, conflictQuestion?.id]);
 
   useEffect(() => {
-    if (transcriptRef.current) transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
-  }, [memory.turns.length, busy, expanded]);
+    if (busy || expanded) return;
+    if (conflictQuestion && conflictQuestion.chatId === memory.activeChatId && needsConflictReview(memory, findConflictTurn(memory, conflictQuestion.id))) return;
+    const pending = currentConflictQuestion(memory, memory.activeChatId, dismissedConflicts);
+    setReviewError(''); setConflictQuestion(pending || null);
+  }, [memory, busy, expanded, conflictQuestion, dismissedConflicts]);
+
+  function dismissConflict() {
+    setDismissedConflicts(ids => [...ids, conflictQuestion.id]);
+    setConflictQuestion(null); setReviewError('');
+  }
+  async function answerConflict(review) {
+    if (submittingRef.current || !services) return;
+    submittingRef.current = true; setBusy(true); setReviewError('');
+    const fact = conflictQuestion.candidates.find(item => item.id === review.factId);
+    const prompt = `${fact ? `Use ${fact.value} from ${sourceLabel(fact)} for ${conflictQuestion.subject}.` : `Leave the ${conflictQuestion.subject} conflict unresolved.`}${review.rememberAuthority ? ` ${authorityLabel(conflictQuestion, fact)}` : ''}${review.reason ? ` Reason: ${review.reason}` : ''}`;
+    try {
+      const result = await processPrompt(memory, prompt, source, state => localStorage.setItem(STORAGE_KEY, JSON.stringify(state)), undefined, [], { chatId: memory.activeChatId, conflictReview: review, services });
+      setMemory(result.state); setConflictQuestion(null);
+    } catch (error) {
+      const restored = readMemory().state;
+      setMemory(restored);
+      if (restored.conflictReviews?.some(item => item.conflictTurnId === review.conflictTurnId)) {
+        setConflictQuestion(null); setError('Your choice was saved, but its response could not be completed.');
+      } else setReviewError(`${error.message} Your answer has not been saved. Try again.`);
+    } finally { submittingRef.current = false; setBusy(false); }
+  }
 
   async function submit(event) {
     event.preventDefault();
-    if (busy || expanded || !input.trim()) return;
+    if (!services || submittingRef.current || expanded || conflictQuestion || !input.trim()) return;
     if (provider !== 'codex' && !providers.some(item => item.id === provider && item.configured)) { openConnection(); return; }
     const prompt = input.trim();
+    const submittedAttachments = attachments;
+    const turnId = `turn-${crypto.randomUUID().slice(0, 8)}`;
+    submittingRef.current = true;
+    setPendingTurn({ id: turnId, prompt, source, author: DEMO_MEMBERS[source], attachments: submittedAttachments, startedAt: Date.now(), pending: true });
+    setInput('');
+    setAttachments([]);
     setBusy(true);
     setError('');
     await new Promise(resolve => requestAnimationFrame(resolve));
     try {
-      const result = await processPrompt(memory, prompt, source, state => localStorage.setItem(STORAGE_KEY, JSON.stringify(state)), requestAnswer, attachments);
-      setMemory(result.state);
-      setInput('');
-      setAttachments([]);
+      const result = await processPrompt(titleConversation(memory, memory.activeChatId, prompt, submittedAttachments), prompt, source, state => localStorage.setItem(STORAGE_KEY, JSON.stringify(state)), requestAnswer, submittedAttachments, { turnId, chatId: memory.activeChatId, services, memoryReview: memoryReviewEnabled });
+      setMemory(result.state); // Leave any next-message draft typed during generation intact.
     } catch (error) {
       setMemory(readMemory().state);
-      setError(`${error.message} No completed response was saved; any earlier fact writes remain in local memory.`);
-    } finally { setBusy(false); }
+      const currentDraft = composerDraftRef.current;
+      const recovered = recoverDraftAfterFailure(currentDraft, { input: prompt, attachments: submittedAttachments, source });
+      setInput(recovered.input); setAttachments(recovered.attachments); setSource(recovered.source);
+      setError(`${error.message} No completed response was saved; any acknowledged fact writes remain in project memory.${recovered === currentDraft ? ' Your next draft is preserved; the failed message remains in the conversation.' : ' Your message is restored for retry.'}`);
+    } finally { submittingRef.current = false; setBusy(false); setPendingTurn(null); }
   }
 
-  function startReplay(turn) { setReplay(turn); setCursor(0); setPlaying(true); setReplayKey(key => key + 1); }
-  function back() { setPlaying(false); setReplay(null); }
-  function prepareCorrection() { setSource('You'); setInput(CORRECTION); inputRef.current?.focus({ preventScroll: true }); }
-  function reset() {
-    try { const empty = seedState(); localStorage.setItem(STORAGE_KEY, JSON.stringify(empty)); setMemory(empty); setInput(FIRST_PROMPT); setAttachments([sampleMemo()]); setSource('Marketing'); setError(''); back(); }
-    catch { setError('Local storage could not be reset. Existing records have not been reported as cleared.'); }
+  function startReplay(turn) { setReplay(turn); setCursor(0); setPlayMode('auto'); setReplayRun(run => run + 1); setReturning(false); setPlaying(true); }
+  function back() { setPlaying(false); setReturning(true); }
+  function replayStep() { setPlayMode('step'); setReplayRun(run => run + 1); setPlaying(true); }
+  async function reset() {
+    if (busy || serviceLoading || !services) return;
+    setBusy(true);
+    try {
+      const id = newWorkspaceId(), empty = normalizeConversations(seedState());
+      await serviceRequest('save', { workspaceId: id, state: empty, operation: 'Initialize fresh demo workspace' });
+      selectWorkspace(id); localStorage.setItem(STORAGE_KEY, JSON.stringify(empty));
+      setServiceState(current => ({ ...current, workspaceId: id })); setMemory(empty);
+      draftsRef.current = {}; setConflictQuestion(null); setDismissedConflicts([]); setReviewError('');
+      setInput(''); setAttachments([]); setSource('Marketing'); setError(''); finishReplay();
+    } catch (failure) { setError(failure.message || 'Reset failed. Existing records are retained.'); }
+    finally { setBusy(false); }
   }
-  const turns = expanded ? [replay] : memory.turns;
-  const last = memory.turns.at(-1);
-  const savedIndex = replay?.trace.findIndex(item => item.stage === 'saved' && item.entity !== 'document') ?? -1;
-  const factSaved = expanded && cursor >= savedIndex;
-  const evidence = replay?.candidates || [];
-  const compared = expanded && cursor >= replay.trace.findIndex(item => item.stage === 'compare' || item.stage === 'policy');
-  const policyChecked = expanded && cursor >= replay.trace.findIndex(item => item.stage === 'policy');
-  const resolved = expanded && cursor >= replay.trace.findIndex(item => item.stage === 'resolve');
-  const decisionSaved = expanded && cursor >= replay.trace.findIndex(item => item.stage === 'committed');
-  const localCount = replay ? replay.factCount - (factSaved ? 0 : replay.incoming.length) : memory.facts.length;
+  async function switchChat(chatId, create = false) {
+    if (busy || expanded) return;
+    const next = { ...memory, activeChatId: chatId, conversations: create ? [...memory.conversations, { id: chatId, title: 'New chat' }] : memory.conversations };
+    try {
+      if (services) await services.save(next, 'Save chat navigation');
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      draftsRef.current[memory.activeChatId] = { input, attachments, source };
+      const draft = draftsRef.current[chatId] || { input: '', attachments: [], source: 'Marketing' };
+      setMemory(next); setInput(draft.input); setAttachments(draft.attachments); setSource(draft.source); setError('');
+      inputRef.current?.focus({ preventScroll: true });
+    } catch { setError('The conversation could not be saved. Free up browser storage and try again.'); }
+  }
+  const turns = expanded ? [replayTurn] : pendingTurn ? [...chatTurns.filter(turn => turn.id !== pendingTurn.id), pendingTurn] : chatTurns;
+  const replayCycle = useMemo(() => completedReplayCycle(memory), [memory]);
+  const composerQuestion = !expanded && chatTurns.find(turn => turn.id === conflictQuestion?.id);
 
-  return <main className="experience">
-    <header className="masthead"><span className="wordmark">chronicle</span><div className="header-actions">{expanded && <button onClick={back}>Back to terminal <span>↙</span></button>}<button className="reset" onClick={reset} disabled={busy} title="Reset this browser’s demo records" aria-label="Reset local demo">Reset demo</button></div></header>
-    <section ref={stageRef} className={`space ${expanded ? 'expanded' : 'close-up'}`} aria-label="Terminal and project memory">
+  return <main className={`experience ${expanded ? 'is-replaying' : ''} ${returning ? 'is-returning' : ''}`}>
+    <header className="masthead"><span className="wordmark">chronicle</span><div className="header-actions">{expanded && <button onClick={back} disabled={returning}>Back to terminal <span>↙</span></button>}<button onClick={useExample} disabled={busy || expanded || Boolean(composerQuestion)}>Use example memo</button><button className="reset" onClick={reset} disabled={busy} title="Start a fresh workspace; previous Atlas records are retained" aria-label="Reset demo">Reset demo</button></div></header>
+    <section className={`space ${expanded ? 'expanded' : 'close-up'}`} aria-label="Terminal and project memory">
       <div className="space-light"/>
-      <div className={`universe ${camera.compact ? 'compact' : ''}`} style={{ '--camera-scale': expanded ? camera.wide : camera.close, '--camera-shift': expanded ? '0px' : camera.compact ? '-277.5px' : '-142.5px' }}>
-        <div className="depth-plane plane-memory" aria-hidden="true"><span>PROJECT MEMORY</span></div><div className="depth-plane plane-execution" aria-hidden="true"><span>EXECUTION</span></div>
-        <Flow compact={camera.compact} event={event} running={playing} replayKey={replayKey}/>
-
-        <section className={`station storage ${storageStages.includes(event?.stage) ? 'awake' : ''}`} aria-hidden={!expanded} aria-label="Local storage">
-          <span className="station-label">LOCAL STORE <span>01</span></span><h2>{event?.entity === 'document' ? event.stage === 'write' ? 'Saving memo…' : 'Memo retained' : event?.stage === 'write' ? 'Writing…' : event?.stage === 'commit' ? 'Saving decision…' : decisionSaved ? 'Decision saved' : factSaved ? replay?.correction ? 'Lesson retained' : replay?.incoming.length ? 'Fact retained' : 'Message retained' : 'Existing memory'}</h2><div className="record-stack"><div/><div/><div/></div><p>{localCount} retained fact{localCount === 1 ? '' : 's'} · {decisionSaved ? 'answer + trace' : 'append-only history'}</p><div className="station-detail">{factSaved && replay?.incoming.length ? replay.incoming.map(fact => <div key={fact.id}><span>{fact.source}</span><strong>{fact.value}</strong></div>) : <div><span>Engineering · seeded</span><strong>Monday</strong></div>}</div><code>{event?.stage === 'commit' ? 'append resolution + evidence' : factSaved ? 'write confirmed · this browser' : 'browser storage · seeded fixture'}</code>
-        </section>
-        <section className={`station comparison ${['extract', 'recall', 'compare'].includes(event?.stage) ? 'awake' : ''} ${compared && replay?.conflict ? 'conflicted' : ''}`} aria-hidden={!expanded} aria-label="Evidence comparison">
-          <span className="station-label">RECALL + COMPARE <span>02</span></span><h2>{event?.stage === 'extract' ? 'Read the document' : !compared ? 'Look up the subject' : replay?.conflict ? 'Conflicting claims' : evidence.length ? 'Available evidence' : 'No matching evidence'}</h2><div className="evidence-list">{evidence.length ? evidence.slice(-3).map(fact => <div key={fact.id}><i className={fact.source.toLowerCase()}/><span>{fact.source}</span><strong>{fact.value}</strong>{fact.document && <small>{fact.document}{fact.sourceDate ? ` · ${fact.sourceDate}` : ''}</small>}</div>) : <p>No structured claim matches this prompt.</p>}</div><code>{event?.stage === 'extract' ? 'memo → candidate factual claims' : 'match project + subject + scope'}</code>
-        </section>
-        <section className={`station policy ${event?.stage === 'policy' ? 'awake' : ''} ${policyChecked && replay?.applied ? 'remembered' : ''}`} aria-hidden={!expanded} aria-label="Resolution policy">
-          <span className="station-label">POLICY + PRECEDENTS <span>{replay ? `v${replay.policy}` : 'v1'}</span></span><h2>{policyChecked && replay?.applied ? 'Lesson applied' : replay?.correction ? 'A scoped lesson' : 'Check authority'}</h2><p>{replay?.lesson ? 'Engineering owns launch readiness for Atlas launch.' : 'Starting rule: Marketing has priority for launch dates.'}</p><div className="scope-line">{policyChecked ? replay?.applied ? 'Scope matched · precedent cited' : 'No precedent applied' : 'Candidate ≠ applied evidence'}</div><code>evaluate scope → select evidence</code>
-        </section>
-        <section className={`station result ${['generate', 'generated', 'resolve', 'respond'].includes(event?.stage) ? 'awake' : ''}`} aria-hidden={!expanded} aria-label="Decision output">
-          <span className="station-label">RESOLUTION <span>03</span></span><h2>{resolved ? replay?.selected?.value || (replay?.correction ? 'Lesson recorded' : replay?.conflict ? 'Needs input' : 'Model response') : 'Awaiting evidence'}</h2><p>{resolved ? replay?.selected ? `${replay.selected.source} · ${replay.selected.subject}` : replay?.conflict ? 'No justified fact selection' : replay?.model || 'Answer composed' : 'Facts and policy determine the result.'}</p><span className={`save-state ${decisionSaved ? 'saved' : ''}`}>{decisionSaved ? 'Saved locally with evidence' : resolved ? 'Decision write pending' : 'Not resolved yet'}</span><code>selected fact · policy · explanation</code>
-        </section>
-
+      <ReplayScene turn={replayTurn} step={step} steps={replaySteps} cursor={cursor} playMode={playMode} onCursorChange={setCursor} onPlaybackComplete={completePlayback} playing={playing} replayRun={replayRun} returning={returning} onReturnComplete={finishReplay} onPause={() => setPlaying(false)}>
         <section className="terminal" aria-label="AI terminal">
-          <div className="terminal-chrome"><span>chronicle</span><span className="terminal-project">~/atlas-launch</span><div className="model-control"><label htmlFor="model" className="sr-only">AI model</label><select id="model" value={selection} disabled={busy || expanded} onChange={event => setSelection(event.target.value)}><optgroup label="OpenAI"><option value="codex">Codex · signed-in account</option><option value="openai">OpenAI · API model</option></optgroup><optgroup label="Anthropic"><option value="anthropic:claude-sonnet-5">Claude Sonnet 5</option><option value="anthropic:claude-opus-5-5">Claude Opus 5.5</option></optgroup><optgroup label="Other"><option value="compatible">Custom · OpenAI-compatible</option></optgroup></select>{provider !== 'codex' && !expanded && <button onClick={openConnection} disabled={busy}>{providers.some(item => item.id === provider && item.configured) ? 'Configure' : 'Connect'}</button>}</div></div>
+          <div className="terminal-chrome"><span>Atlas launch</span><span className="terminal-project">/</span><label htmlFor="conversation" className="sr-only">Conversation</label><select id="conversation" className="conversation-picker" value={memory.activeChatId} onChange={event => switchChat(event.target.value)} disabled={busy || expanded}>{memory.conversations.map(chat => <option key={chat.id} value={chat.id}>{chat.title}</option>)}</select><button className="new-chat" onClick={() => switchChat(`chat-${crypto.randomUUID()}`, true)} disabled={busy || expanded}><span aria-hidden="true">+</span> New chat</button></div>
           <div className="terminal-body">
             <div className="transcript" ref={transcriptRef} role="log" aria-label="Conversation">
-              {!turns.length && <div className="session-start"><p>Atlas launch · project memory ready.</p><p>Attach a memo and I’ll review it against what the project already knows.</p><small>Text and Markdown documents · prior project context included</small></div>}
-              {turns.map(turn => <article className="turn" key={turn.id}><div className="message user-message"><span className="message-author">{turn.source || 'You'}</span><p>{turn.prompt}</p>{turn.attachments?.map(file => <button key={file.name} className="message-attachment" onClick={() => setDocumentPreview(file)}>{file.name} <span>View memo ↗</span></button>)}</div><div className="message assistant-message"><span className="message-author">chronicle</span><p>{turn.answer || 'Message recorded; no completed response was saved.'}</p></div>{turn.answer && <div className="turn-meta"><span>Saved locally · {turn.model || `policy v${turn.policy}`}</span>{!expanded && turn.trace?.length > 0 && <button onClick={() => startReplay(turn)} aria-label={`Replay internals for ${turn.id}`}>Replay internals <span>↗</span></button>}</div>}</article>)}
-              {busy && <p className="working">Waiting for {providerNames[provider]}…</p>}
+              {!turns.length && <div className="session-start"><span className="session-eyebrow">PROJECT WORKSPACE</span><h1>Ready when you are{DEMO_MEMBERS[source] ? `, ${DEMO_MEMBERS[source]}` : ''}.</h1><p>Share a draft, ask a question, or pick up where the team left off.</p><small>Your conversations and project context stay together here.</small></div>}
+              {turns.map(turn => <article className="turn" key={turn.id}><div className="message user-message"><span className="message-author">{sourceLabel(turn)}</span><MessageContent>{turn.prompt}</MessageContent>{turn.attachments?.map(file => <button key={file.name} className="message-attachment" onClick={() => setDocumentPreview(file)}>{file.name} <span>View memo ↗</span></button>)}</div><div className="message assistant-message"><span className="message-author">chronicle</span>{turn.pending ? <PendingReply startedAt={turn.startedAt} hasDocument={Boolean(turn.attachments?.length)}/> : <MessageContent>{expanded && !turn.trace.slice(0, step.traceIndex + 1).some(item => item.stage === 'respond') ? 'Processing the recorded request…' : turn.answer || 'No reply was completed for this message.'}</MessageContent>}</div>{turn.answer && <div className="turn-meta">{hasSavedDecision(turn, expanded ? step.traceIndex : undefined) && <span className="decision-saved"><span aria-hidden="true">✓</span> Decision saved to memory</span>}{!expanded && needsConflictReview(memory, turn) && conflictQuestion?.id !== turn.id && <button disabled={busy} onClick={() => { setReviewError(''); setConflictQuestion(turn.conflicts?.map(group => findConflictTurn(memory, group.id)).find(group => needsConflictReview(memory, group)) || turn); }}>Resolve conflict <span>↗</span></button>}{!expanded && !busy && !composerQuestion && replayCycle?.id === turn.id && <button onClick={() => startReplay(replayCycle)} aria-label="Replay internals"> Replay internals <span>↗</span></button>}</div>}</article>)}
             </div>
             {error && <p className="storage-error" role="alert">{error}</p>}
-            {!expanded && last?.conflict && !memory.lesson && <button className="correction-action" onClick={prepareCorrection}>Correct the launch authority <span>↗</span></button>}
-            {!expanded && last?.correction && <button className="correction-action" onClick={() => { setSource('Marketing'); setInput('Marketing says the next release is Tuesday. Engineering says it will be ready Thursday. When is the next release?'); inputRef.current?.focus({ preventScroll: true }); }}>Try the next release <span>↗</span></button>}
-            <form onSubmit={submit} className="composer" onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); if (!expanded && !busy) attachMemo(event.dataTransfer.files[0]); }}>
+
+            {composerQuestion ? <ConflictQuestion key={composerQuestion.id} turn={composerQuestion} busy={busy} error={reviewError} onAnswer={answerConflict} onDismiss={dismissConflict}/> : <form onSubmit={submit} className="composer" onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); if (!expanded) attachMemo(event.dataTransfer.files[0]); }}>
             {!expanded && attachments.map(file => <div className="attachment-chip" key={file.name}><button type="button" onClick={() => setDocumentPreview(file)}>{file.name}<small>{file.example ? 'Example memo' : 'Attached document'}</small></button><button type="button" aria-label="Remove attached memo" onClick={() => setAttachments([])}>×</button></div>)}
             <input ref={fileRef} type="file" accept=".txt,.md,text/plain,text/markdown" className="sr-only" tabIndex={-1} aria-label="Upload memo file" onChange={event => { attachMemo(event.target.files[0]); event.target.value = ''; }}/>
-            <div className="attachment-tools">{!expanded && <><button type="button" onClick={() => fileRef.current?.click()} disabled={busy}>Attach memo</button><span>or drop a file</span>{!attachments.length && <button type="button" onClick={useExample} disabled={busy}>Use example memo</button>}</>}</div><div className="composer-top"><label htmlFor="source">Speaking as</label><select id="source" value={source} onChange={event => setSource(event.target.value)} disabled={busy || expanded}><option>Marketing</option><option>Engineering</option><option>You</option></select><span>{expanded ? 'Read-only replay' : 'Enter to send · Shift+Enter for a new line'}</span></div><div className="composer-input"><label htmlFor="prompt" className="sr-only">Prompt Chronicle</label><textarea id="prompt" ref={inputRef} value={expanded ? '' : input} disabled={busy || expanded} onChange={event => setInput(event.target.value)} placeholder={expanded ? 'Return to the terminal to continue…' : 'Ask anything, or add a project update…'} rows={2} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); event.currentTarget.form.requestSubmit(); } }}/><button type="submit" disabled={busy || expanded || !input.trim()} aria-label="Send prompt">↑</button></div></form>
+            <div className="composer-input"><label htmlFor="prompt" className="sr-only">Prompt Chronicle</label><AutoTextarea id="prompt" ref={inputRef} value={expanded ? '' : input} disabled={expanded} onChange={event => setInput(event.target.value)} placeholder={expanded ? 'Return to the terminal to continue…' : 'Ask anything, or add a project update…'} rows={2} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form.requestSubmit(); } }}/><button type="submit" disabled={busy || expanded || !input.trim()} aria-label="Send prompt" title={busy ? 'Reply in progress — you can keep drafting' : 'Send message'}>↑</button></div>
+            <div className="composer-top composer-toolbar"><div className="composer-identity"><button className="attach-file" type="button" onClick={() => fileRef.current?.click()} disabled={expanded} aria-label="Attach file" title="Attach a text or Markdown file"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m8 12 7-7a3 3 0 0 1 4 4L9 19a5 5 0 0 1-7-7L12 2"/><path d="m5 15 9-9"/></svg></button><label htmlFor="source">From</label><select id="source" value={source} onChange={event => setSource(event.target.value)} disabled={expanded}>{Object.entries(DEMO_MEMBERS).map(([team, name]) => <option key={team} value={team}>{name} [{team}]</option>)}</select></div><ModelSelector selection={selection} onChange={setSelection} providers={providers} disabled={busy || expanded} replaying={expanded} onConnect={openConnection}/>{expanded && <span>Read-only replay</span>}</div></form>}
           </div>
         </section>
-      </div>
+      </ReplayScene>
     </section>
-    <footer className="quiet-footer"><span className="prototype-label">LOCAL MEMORY <span>· {providerNames[provider]}</span></span>{expanded ? <div className="replay-controls"><button aria-label="Previous replay step" disabled={cursor === 0} onClick={() => { setPlaying(false); setCursor(cursor - 1); }}>←</button><button onClick={() => { if (traceDone) { setCursor(0); setReplayKey(key => key + 1); } setPlaying(!playing); }}>{playing ? 'Pause' : traceDone ? 'Replay' : 'Play'}</button><button aria-label="Next replay step" disabled={cursor === replay.trace.length - 1} onClick={() => { setPlaying(false); setCursor(cursor + 1); }}>→</button><div role="status"><span>{String(cursor + 1).padStart(2, '0')} / {replay.trace.length}</span><strong>{event?.title}</strong><p>{event?.detail}</p></div></div> : <span className="footer-hint">Responses first. Explore the internals when you choose.</span>}</footer>
+    <footer className="quiet-footer"><span className="prototype-label">{serviceLoading ? 'CONNECTING' : serviceState?.storage === 'atlas' ? 'ATLAS' : serviceState ? 'SERVER MEMORY' : 'BACKEND OFFLINE'} <span>· {providerNames[provider]}</span></span>{expanded ? <div className="replay-controls"><button aria-label="Previous replay step" disabled={returning || cursor === 0} onClick={() => { setPlaying(false); setCursor(cursor - 1); }}>←</button><button disabled={returning} onClick={() => { if (traceDone) { setCursor(0); setReplayRun(run => run + 1); } setPlayMode('auto'); setPlaying(!playing); }}>{playing ? 'Pause' : traceDone ? 'Replay all' : 'Play'}</button><button disabled={returning} onClick={replayStep}>Replay step</button><button aria-label="Next replay step" disabled={returning || cursor === replaySteps.length - 1} onClick={() => { setPlaying(false); setCursor(cursor + 1); }}>→</button><div><input className="replay-scrubber" type="range" disabled={returning} aria-label="Replay position" min="0" max={replaySteps.length - 1} value={cursor} onChange={event => { setPlaying(false); setCursor(Number(event.target.value)); }}/><div role="status"><span>{String(cursor + 1).padStart(2, '0')} / {replaySteps.length}</span><strong>{returning ? 'Returning to the terminal…' : event?.title}</strong><p>{event?.detail}</p></div></div></div> : <span className="footer-hint">Atlas launch · {serviceState?.storage === 'atlas' ? 'Connected workspace' : 'Atlas credentials needed'}</span>}</footer>
     <dialog ref={documentRef} className="document-dialog" onCancel={() => setDocumentPreview(null)} onClose={() => setDocumentPreview(null)}>
       <button className="dialog-close" onClick={() => setDocumentPreview(null)} aria-label="Close memo preview">×</button><h2>{documentPreview?.name}</h2><span>{documentPreview?.example ? 'EXAMPLE DOCUMENT' : 'ATTACHED DOCUMENT'}</span><pre>{documentPreview?.text}</pre>
     </dialog>

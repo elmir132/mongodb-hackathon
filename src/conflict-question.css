@@ -1,0 +1,26 @@
+/* A question temporarily occupies the composer slot; its draft stays in App state. */
+.conflict-question { position: relative; width: 100%; flex-shrink: 0; margin: 0; color: #dce8df; font-family: 'DM Sans', sans-serif; }
+.conflict-question-content { max-height: min(420px, 50dvh); overflow: auto; padding: 12px 16px; border: 1px solid #43594b; border-radius: 8px; background: #18241c; }
+.conflict-question h3 { margin: 0 0 6px; font-size: 14px; line-height: 1.5; font-weight: 500; }
+.conflict-question fieldset { display: grid; gap: 4px; padding: 0; margin: 0; border: 0; min-width: 0; }
+.conflict-option { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border: 1px solid transparent; border-radius: 5px; cursor: pointer; }
+.conflict-option:hover { background: #213128; }
+.conflict-option:has(input:checked) { border-color: #7a9c85; background: #263a2d; }
+.conflict-option input { margin: 0; flex-shrink: 0; accent-color: #afeccc; }
+.conflict-option > span { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; min-width: 0; }
+.conflict-option strong { font-size: 13px; font-weight: 500; }
+.conflict-source { color: #9fb5a7; font-size: 12px; line-height: 1.5; }
+.conflict-sources-toggle { display: flex; align-items: center; gap: 7px; margin: 0 0 7px; padding: 3px 0; border: 0; background: transparent; color: #a9bfb0; font-size: 11px; }
+.conflict-sources { position: absolute; bottom: calc(100% + 8px); left: 0; right: 0; z-index: 5; max-height: min(240px, 30dvh); overflow: auto; padding: 4px 16px; background: #1b2920; border: 1px solid #536d5b; border-radius: 8px; box-shadow: 0 -8px 28px #0004; }
+.conflict-evidence { border-left: 1px solid #4d6755; margin: 10px 0; padding-left: 12px; font-size: 12px; line-height: 1.5; }
+.conflict-evidence strong, .conflict-evidence span { display: block; font-weight: 400; }
+.conflict-evidence strong { color: #d1e0d5; }
+.conflict-evidence p { margin: 5px 0; overflow-wrap: anywhere; }
+.conflict-question textarea { display: block; margin-top: 10px; width: 100%; border: 0; border-top: 1px solid #354a3c; border-radius: 0; padding: 10px 0 0; background: transparent; color: #dfece3; resize: none; min-height: 32px; max-height: min(140px, 20dvh); font-size: 14px; line-height: 1.5; }
+.conflict-question textarea::placeholder { color: #8fa896; }
+.conflict-remember { display: flex; align-items: flex-start; gap: 8px; margin: 10px 0 0; color: #b3cdbb; font-size: 11px; line-height: 1.5; }
+.conflict-remember input { accent-color: #afeccc; }
+.conflict-question-actions { display: flex; justify-content: flex-end; align-items: center; gap: 12px; margin-top: 8px; }
+.conflict-question-actions button { padding: 7px 11px; border: 0; border-radius: 5px; background: transparent; font-size: 11px; color: #acc4b5; }
+.conflict-question-actions button[type=submit] { background: #b6dfbd; color: #17321f; }
+.conflict-question .storage-error { color: #e2bf8b; margin: 12px 0 0; font-size: 12px; }

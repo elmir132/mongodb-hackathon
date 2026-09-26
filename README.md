@@ -52,9 +52,9 @@ Copy `.env.example` → `.env` for `VOYAGE_API_KEY` (never commit secrets).
 
 Chronicle opens as a working conversation terminal. An older Engineering readiness update is seeded in memory. Marketing attaches a realistic launch memo and asks for a review. Chronicle notices that its incidental Friday rollout conflicts with the earlier Monday readiness update. Receive the review, then select **Replay internals** to see the confirmed fact write, memory lookup, conflict, policy, model response, and saved decision in a compact spatial scene. Replay does not write again or call the model again.
 
-Use **Attach memo** to upload a `.txt` or `.md` document (up to 100 KB), or **Use example memo** to load the go-to-market draft. Open the filename to read the complete memo; it includes campaign messaging, rollout, assets, and open questions. The original document is retained before claims are extracted, and the review names prior evidence with its source and date. PDF/Word extraction is not connected yet.
+Use the paperclip to upload a `.txt` or `.md` document (up to 100 KB), or **Use example memo** to load the go-to-market draft. Open the filename to read the complete memo; it includes campaign messaging, rollout, assets, and open questions. The original document is retained before claims are extracted, and the review names prior evidence with its source and date. PDF/Word extraction is not connected yet.
 
-Use **Correct the launch authority**, then try the next release to see the scoped lesson reused. The source picker also supports Engineering or your own input. Arbitrary prompts reach the selected model; local fact extraction and conflict rules remain a limited demo adapter.
+Answer the source-backed conflict question, select Engineering and retain the explicit readiness lesson, then attach the next-release memo to see reuse. The source picker contains Maya [Marketing] and Alex [Engineering]. Arbitrary prompts reach the selected model; structured claim extraction remains limited.
 
 ```sh
 npm install
@@ -76,12 +76,12 @@ API keys are sent only to the local connection endpoint and retained in server m
 
 ### What is real
 
-Real Codex text generation and browser-local writes. Facts, notes, turns, corrections, and replay events survive reloads in this browser. **Reset demo** clears this demo’s records and restores the seeded Monday claim. A failed write or model call is not represented as a successfully saved answer; earlier successful fact writes may remain.
+Real Codex generation, Atlas persistence, Voyage embeddings, project-filtered Atlas Vector Search and Elmir’s Python resolution engine. Workspace facts, documents, turns, corrections, policy history and replay receipts survive a backend restart. **Reset demo** starts a fresh isolated workspace with labeled Engineering examples and retains previous Atlas records. A failed write or model call is not represented as a completed answer; earlier acknowledged writes may remain.
 
-Atlas, Voyage, Vector Search, the team's production resolution engine, and backend streaming are not connected end-to-end yet. Retrieval code lives in `retrieval/` for Sahil to host. The replay shows recorded application operations at an illustrative pace, not model-internal reasoning. Local policy rules are a provisional adapter, not a competing production implementation.
+`backend/app/api/ledger.py` hosts the existing engine and retrieval modules. The terminal receives service receipts with each request. The backend also exposes the generic repository’s `/events` SSE stream; replay does not consume that stream. Replay animates only recorded operations, including real candidate scores and applied-precedent IDs; it makes no service calls. The browser still performs limited structured claim extraction, which is labeled separately from the Python engine.
 
 - `src/journey.jsx`: terminal, model connection UI, and optional replay.
-- `src/memory.js`: provisional local memory/trace adapter.
+- `src/memory.js`: claim extraction, request orchestration and trace assembly; `src/services.js` connects it to the Python API.
 - `src/fixtures/launch-memo.md`: natural example document for the review demo.
 - `src/memory.test.js`: persistence order, correction/reuse, scope, arbitrary prompts, and failure checks.
 - `src/styles.css`: consistent terminal padding and layered spatial scene.
@@ -93,3 +93,13 @@ Implementation references: [Codex non-interactive mode](https://learn.chatgpt.co
 ## Team
 
 Team 419: Elmir, Sahil, Maxime, and Danny. Full last names still need to be added before submission.
+
+### Connected terminal services
+
+The terminal uses the real Python engine, Voyage, and Atlas through the
+canonical `/state` and `/state/correct` routes, with workspace load/save under
+`/api/ledger/*`. Both state POSTs include `context.scope` and `context.subject`. Run **both** `npm run backend` and `npm run dev`; see
+[backend setup and validation](backend/README.md#active-terminal-integration).
+The Python backend reads ignored `.env` credentials. The current Voyage model
+uses 1,024 dimensions and a project-filtered `precedent_vector_index`.
+Replay shows stored service receipts and makes no new service requests.

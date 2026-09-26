@@ -1,0 +1,45 @@
+/* Chat controls and a gentle contrast lift, independent of the replay scene. */
+.close-up .terminal { border-color: #465b4d; background: #162019; }
+.close-up .terminal-chrome { min-height: 48px; height: 48px; flex-wrap: nowrap; gap: 12px; border-bottom-color: #3c5042; }
+.conversation-picker { min-width: 0; max-width: 320px; background: transparent; color: #bfcec4; border: 0; padding: 6px 0; font: inherit; text-overflow: ellipsis; }
+.conversation-picker option { background: #1b2920; color: #dce8e0; }
+.new-chat { margin-left: auto; flex-shrink: 0; border: 1px solid #435b4b; border-radius: 5px; background: transparent; padding: 6px 9px; font-size: inherit; color: #c3d7ca; }
+.new-chat:hover { background: #24352a; border-color: #718e7b; }
+.close-up .terminal-project { color: #91a899; }
+.close-up .session-start .session-eyebrow, .close-up .session-start small { color: #98ae9e; }
+.close-up .user-message p { color: #d7e3da; }
+.close-up .assistant-message p, .close-up .message-content { color: #dfebe2; }
+.close-up .turn-meta { color: #91ac9a; }
+.close-up .composer { background: #101a13; border-color: #506956; }
+.close-up .composer:focus-within { border-color: #91b09a; }
+.close-up .composer textarea { color: #e1ebe3; }
+.close-up .composer textarea::placeholder { color: #8ba392; }
+.composer-identity { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.close-up .composer-top { flex-wrap: wrap; gap: 10px 20px; color: #9bb0a2; }
+.composer-top .model-control, .close-up .composer-top .model-control { margin-left: auto; width: auto; gap: 8px; }
+.composer-top .model-control select { border: 1px solid #3f5747; background: #1b2a20; padding: 3px; }
+.close-up .composer-top .model-control select { padding: 5px 7px; color: #c7dbcd; max-width: 220px; }
+.close-up .composer-top #source { color: #c0d0dd; }
+.composer-top .model-control button { width: auto; height: auto; background: none; border: 0; color: #b8d8c3; font-size: inherit; padding: 3px; }
+.composer .attach-file { display: flex; justify-content: center; align-items: center; width: 28px; height: 28px; padding: 4px; background: transparent; border-color: transparent; color: #a7c4b1; }
+.composer .attach-file:hover:not(:disabled) { background: #293e30; color: #e0f0e5; }
+.header-actions .reset { color: #98ad9f; }
+@media (max-width: 700px) {
+  .close-up .terminal-chrome { gap: 8px; min-height: 48px; font-size: 11px; }
+  .close-up .terminal-chrome > span:first-child { display: none; }
+  .close-up .terminal-project { display: none; }
+  .conversation-picker { flex: 1; }
+  .close-up .composer-top { gap: 8px; }
+  .close-up .composer-top .model-control { width: 100%; justify-content: flex-end; }
+  .close-up .composer-top .model-control #model { flex: 1; max-width: 220px; }
+}
+
+/* Source, attachment, and model controls sit below the writing area. */
+.composer .composer-toolbar { margin: 8px 0 0; }
+.close-up .composer .composer-toolbar { margin: 12px 0 0; }
+
+/* Textareas size themselves from content, without a manual resize handle. */
+.composer textarea, .close-up .composer textarea { resize: none; max-height: min(220px, 30dvh); }
+
+.decision-saved { display: inline-flex; align-items: center; gap: 6px; color: #91ac9a; }
+.decision-saved > span { color: #a9d7b7; }

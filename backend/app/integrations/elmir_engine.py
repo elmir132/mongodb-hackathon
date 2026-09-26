@@ -30,6 +30,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 from typing import Any
+from datetime import datetime, timezone
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 if str(_REPO_ROOT / "resolution-engine") not in sys.path:
@@ -51,8 +52,9 @@ class ElmirResolutionEngine:
     Protocol (facts, precedents, context) -> dict, plus an additional
     .correct(fact_id, reason, context) -> dict used by POST /state/correct."""
 
-    def __init__(self) -> None:
-        self.policy = engine.demo_starting_policy()
+    def __init__(self, *, policy=None, include_session_precedents=True) -> None:
+        self.policy = policy or engine.demo_starting_policy()
+        self.include_session_precedents = include_session_precedents
         self.precedent_store: list[engine.Precedent] = []
         self._last_facts_by_stable_id: dict[str, engine.Fact] = {}
         self._last_resolution: engine.Resolution | None = None
@@ -70,14 +72,24 @@ class ElmirResolutionEngine:
                          project_id: str) -> list[engine.Fact]:
         matching = [f for f in raw_facts if f.get("subject") == subject]
         out: list[engine.Fact] = []
+        # Missing timestamps carry no relative recency evidence. Never rank by
+        # the microseconds spent iterating through otherwise undated claims.
+        unknown_timestamp = datetime.now(timezone.utc)
         for f in matching:
             stable_id = f.get("id") or f"{f.get('subject')}:{f.get('predicate')}:{f.get('source')}"
+            stamp = f.get("timestamp") or f.get("sourceDate") or f.get("created_at")
+            if isinstance(stamp, str):
+                stamp = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+            if stamp is not None and stamp.tzinfo is None:
+                stamp = stamp.replace(tzinfo=timezone.utc)
             fact = engine.Fact.new(
-                text=_fact_text(f.get("predicate", "value"), f.get("value")),
+                text=f.get("text") or _fact_text(f.get("predicate", "value"), f.get("value")),
                 source=str(f.get("source") or "unknown"),
                 subject=subject,
                 project_id=project_id,
+                timestamp=stamp or unknown_timestamp,
             )
+            fact.id = str(stable_id)
             self._last_facts_by_stable_id[stable_id] = fact
             self._last_facts_by_stable_id[fact.id] = fact  # also indexable by engine id
             out.append(fact)
@@ -107,7 +119,7 @@ class ElmirResolutionEngine:
             # see a precedent until it's actually embedded and upserted there.
             # Session-local precedents go first: they're the freshest, most
             # relevant result for this exact demo run.
-            session_local = [p.to_stored_document() for p in self.precedent_store]
+            session_local = [p.to_stored_document() for p in self.precedent_store] if self.include_session_precedents else []
             session_as_candidates = [
                 {"precedent_id": d["precedent_id"], "score": 1.0, "scope": d["scope"],
                  "reason": d["reason"], "text": d["text"], "metadata": d["metadata"]}
@@ -120,7 +132,18 @@ class ElmirResolutionEngine:
         self._last_resolution = resolution
         return {"resolution": resolution.to_dict(), "policy_version": self.policy.version}
 
+    def restore_resolution(self, resolution: dict, facts: list[dict]) -> None:
+        """Restore the exact durable decision before applying a human answer."""
+        prior = engine.Resolution(**resolution)
+        supporting = [f for f in facts if f.get('id') in prior.supporting_fact_ids]
+        if not supporting or len(supporting) != len(prior.supporting_fact_ids):
+            raise MissingContextError('Saved resolution evidence is incomplete.')
+        self._to_engine_facts(supporting, supporting[0]['subject'], prior.project_id)
+        self._last_resolution = prior
+
     def correct(self, *, correct_fact_id: str, reason: str, context: dict[str, Any]) -> dict[str, Any]:
+        scope = self._require(context, "scope")
+        subject = self._require(context, "subject")
         if self._last_resolution is None:
             raise MissingContextError(
                 "No prior resolution to correct — call resolve (POST /state) for this "
@@ -131,6 +154,10 @@ class ElmirResolutionEngine:
             raise MissingContextError(
                 f"correct_fact_id={correct_fact_id!r} does not match any fact from the last resolution."
             )
+        if scope != self._last_resolution.scope or subject != fact.subject:
+            raise MissingContextError("Correction scope/subject must match the saved resolution.")
+        if context.get("project_id", self._last_resolution.project_id) != self._last_resolution.project_id:
+            raise MissingContextError("Correction project must match the saved resolution.")
         candidate_facts = [
             f for f in self._last_facts_by_stable_id.values()
             if f.id in self._last_resolution.supporting_fact_ids

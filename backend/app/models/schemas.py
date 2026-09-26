@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class FactCreate(BaseModel):
@@ -19,12 +19,23 @@ class FactResponse(FactCreate):
     created_at: datetime
 
 
-class StateRunRequest(BaseModel):
+class ResolutionContextRequest(BaseModel):
+    context: dict[str, Any]
+
+    @field_validator("context")
+    @classmethod
+    def require_scope_and_subject(cls, value):
+        for key in ("scope", "subject"):
+            if not isinstance(value.get(key), str) or not value[key].strip():
+                raise ValueError(f"context.{key} is required")
+        return value
+
+
+class StateRunRequest(ResolutionContextRequest):
     model_config = ConfigDict(extra="forbid")
 
     conflict_text: str = Field(min_length=1, max_length=20_000)
     project_id: str = Field(min_length=1, max_length=250)
-    context: dict[str, Any] = Field(default_factory=dict)
 
 
 class StateResponse(BaseModel):
@@ -34,12 +45,11 @@ class StateResponse(BaseModel):
     updated_at: datetime
 
 
-class StateCorrectRequest(BaseModel):
+class StateCorrectRequest(ResolutionContextRequest):
     model_config = ConfigDict(extra="forbid")
 
-    correct_fact_id: str = Field(min_length=1, max_length=250)
+    correct_fact_id: str | None = Field(default=None, min_length=1, max_length=250)
     reason: str = Field(min_length=1, max_length=2000)
-    context: dict[str, Any] = Field(default_factory=dict)
 
 
 class OverrideCreate(BaseModel):

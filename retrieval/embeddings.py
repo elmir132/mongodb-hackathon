@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from typing import Sequence
+from functools import lru_cache
 
 from retrieval.config import MissingCredentialsError, RetrievalConfig
 
 
+@lru_cache(maxsize=4)
 def _get_client(api_key: str | None):
     """Lazy-import voyageai so unit tests can mock without installing side effects."""
     # Check credentials before importing so missing-key errors stay clear
@@ -23,6 +25,8 @@ def _get_client(api_key: str | None):
             "voyageai is not installed. Run: pip install -r requirements.txt"
         ) from exc
 
+    # Reuse the SDK's connection pool across query/document embeddings. Cache
+    # clients only, never results: every trace still represents a real call.
     return voyageai.Client(api_key=api_key)
 
 

@@ -53,11 +53,16 @@ def get_state(request: Request) -> dict:
 @router.post("/state", response_model=StateResponse)
 def resolve_state(payload: StateRunRequest, request: Request) -> dict:
     try:
+        if payload.context.get("workspace_id"):
+            from app.api.ledger import resolve_state as resolve_workspace
+            return resolve_workspace(payload)
         return request.app.state.services.orchestration.resolve_state(
             conflict_text=payload.conflict_text,
             project_id=payload.project_id,
             context=payload.context,
         )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
     except PrecedentRetrievalUnavailable as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
 
@@ -69,6 +74,11 @@ def correct_state(payload: StateCorrectRequest, request: Request) -> dict:
     key-value note with no learning semantics — see
     test_state_run_uses_integrations_and_keeps_override_separate."""
     try:
+        if payload.context.get("workspace_id"):
+            from app.api.ledger import correct_state as correct_workspace
+            return correct_workspace(payload)
+        if payload.correct_fact_id is None:
+            raise ValueError("A fact ID is required outside the workspace review flow.")
         return request.app.state.services.orchestration.correct_state(
             correct_fact_id=payload.correct_fact_id,
             reason=payload.reason,

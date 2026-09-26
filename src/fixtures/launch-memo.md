@@ -1,6 +1,6 @@
 # Atlas launch — go-to-market memo
 
-From: Marketing
+From: Maya [Marketing]
 To: Launch working group
 Prepared: September 26, 2026
 Status: Working draft

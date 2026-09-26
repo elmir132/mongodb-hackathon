@@ -1,9 +1,17 @@
 import logging
+import sys
+from pathlib import Path
+
+# Shared team modules live at the repository root.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
 from app.api.routes import router
+from app.api.ledger import router as ledger_router
 from app.config import Settings
 from app.db.memory import MemoryRepository
 from app.db.mongo import MongoRepository
@@ -65,6 +73,21 @@ def create_app(
     app.state.settings = settings
     app.state.services = services
     app.include_router(router)
+    app.include_router(ledger_router)
+
+    @app.middleware("http")
+    async def ledger_boundary(request, call_next):
+        if not (request.url.path.startswith("/api/ledger/") or request.url.path in ("/state", "/state/correct")):
+            return await call_next(request)
+        from starlette.responses import JSONResponse
+        origin = request.headers.get("origin")
+        if origin and origin not in ("http://127.0.0.1:5173", "http://localhost:5173"):
+            return JSONResponse({"detail": "Local same-origin access only."}, status_code=403)
+        try:
+            return await call_next(request)
+        except Exception:
+            # Driver/provider errors can contain credentials; never echo them.
+            return JSONResponse({"detail": "Service request failed. Check server credentials, Atlas access, and the vector index. No completion was confirmed."}, status_code=503)
     return app
 
 
