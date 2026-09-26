@@ -80,7 +80,7 @@ test('each service visit is one slow round trip, continuous across confirmations
     if (step.route && step.node !== 'terminal') {
       assert.equal(step.motion.routeMs, 1000, 'restore the original route pace');
       assert.equal(step.motion.stackDelayMs, step.motion.departureDelayMs + step.motion.routeMs + TELEPORT_MS);
-      assert.ok(step.motion.stackMs >= 2400, 'allow a readable descent and ascent');
+      assert.ok(step.motion.stackMs >= 1920, 'keep the descent and ascent readable at 1.25× speed');
     }
     if (step.motion.stackMs) {
       const endProgressMs = step.duration - step.motion.stackDelayMs;

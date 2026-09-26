@@ -85,6 +85,7 @@ export const serviceGeometry = {
   model: [650, 350, 55, 490, 130], voyage: [520, 510, -65, 250, 220], vector: [840, 510, -65, 280, 220],
 };
 export const TELEPORT_MS = 250;
+const STACK_BOUNCE_SPEED = 1.25;
 export const STACK_OFFSET = { x: 34, y: 25, z: -95 };
 // Stop just above the lowest sheet so the packet's glow does not overshoot it.
 const STACK_BOUNCE_DEPTH = 1.6;
@@ -220,7 +221,7 @@ export function compileReplayMotion(steps) {
       start = end;
       continue;
     }
-    const processMs = Math.max(first.node === 'terminal' ? 1600 : 2400, (end - start) * 1200);
+    const processMs = Math.max(2400, (end - start) * 1200) / STACK_BOUNCE_SPEED;
     const stackMs = first.node !== 'terminal' ? processMs : 0;
     const terminalMs = first.node === 'terminal' ? processMs : 0;
     const sliceMs = processMs / (end - start);

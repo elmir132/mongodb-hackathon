@@ -10,12 +10,14 @@ test('memory requests identify the current task and assertions separately from p
   const prompt='The acquisition budget is $20,000. Check this against project memory.';
   const {content}=prepareModelContext({prompt,source:'Marketing',state,memoryReview:true});
   const sent=JSON.parse(content);
-  assert.equal(sent.currentRequest.sourceRef,'prompt');
-  assert.equal(sent.memoryInput.sources.find(source=>source.ref===sent.currentRequest.sourceRef).text,prompt);
+  assert.equal(sent.currentRequest.requestSourceRef,'prompt');
+  assert.equal(sent.currentRequest.instruction,prompt);
+  assert.equal(sent.memoryInput.sources.find(source=>source.ref===sent.currentRequest.requestSourceRef).text,prompt);
   assert.equal(sent.memoryInput.reviewTargets[0].quote,'The acquisition budget is $20,000.');
   assert.equal(sent.conversation[0].user,'When is launch?');
   const transformed=JSON.parse(prepareModelContext({prompt:'Translate the memo into French.',source:'Marketing',state,memoryReview:true,attachments:[{text:'The budget is $20,000.'}]}).content);
   assert.equal(transformed.currentRequest.kind,'translation'); assert.equal(transformed.currentRequest.sourceTask,true);
+  assert.deepEqual(transformed.currentRequest.outputSourceRefs,['attachment:0']);
 });
 
 test('request receipt matches the actual serialized, capped provider context without credentials', () => {

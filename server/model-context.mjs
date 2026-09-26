@@ -8,7 +8,11 @@ export function prepareModelContext({ prompt, source, author, state, draft, sele
   const analysisContext = memoryReview ? memoryAnalysisContext({ prompt, source, author, state, attachments }) : null;
   // The full source text appears once. Avoid sending the same memo as both
   // attachments and analysis sources, or the entire saved replay history.
-  const sent = memoryReview ? { task: 'memory-review', currentRequest: { sourceRef: 'prompt', ...reviewTask(prompt, attachments) }, memoryInput: analysisContext,
+  const sent = memoryReview ? { task: 'memory-review', currentRequest: {
+    instruction: analysisContext.sources[0].text, requestSourceRef: 'prompt',
+    outputSourceRefs: attachments.length ? analysisContext.sources.filter(item => item.ref !== 'prompt').map(item => item.ref) : ['prompt'],
+    ...reviewTask(prompt, attachments),
+  }, memoryInput: analysisContext,
     conversation: context.conversation.slice(-4), policyVersion: state.policy,
     savedDecisions: state.turns.flatMap(turn => [turn, ...(turn.conflicts || [])]).filter(turn => turn.reviewedConflictId || turn.applied).slice(-8)
       .map(turn => ({ subject: turn.subject, selectedFactId: turn.selected?.id || null, appliedPrecedentId: turn.applied || null })) } : context;

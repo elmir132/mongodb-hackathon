@@ -126,3 +126,88 @@ rechecked in this audit.
 Do not expand into fact embeddings, streaming, or another retrieval implementation
 as part of this recovery. Preserve the existing engine, correction endpoint,
 scoped lessons, recorded replay, and retained source evidence.
+
+## Recovery implementation and verification
+
+The user authorized the repairs after the audit. The three confirmed defects
+have been addressed, together with issues exposed by fresh integration checks:
+
+- The Codex CLI now uses a strict response schema. Its current instruction and
+  transformation source references are explicit, separate from prior conversation.
+  A bounded omission check flags concrete assertions absent from accepted claims;
+  it never manufactures replacement facts. Partial checks retain only accepted
+  claims and visibly identify the incomplete check. This does not guarantee
+  comprehensive extraction of arbitrary prose.
+- Source translations, summaries and rewrites keep their requested output, labeled
+  as supplied-source content, alongside the authoritative engine/human result.
+  A live test caught the model translating the instruction itself; explicit
+  output-source references fixed that request ambiguity.
+- Written calendar dates and ISO dates are checked before acceptance, including
+  impossible month days, leap years and document-provided year context.
+- Browser QA uncovered a separate multi-conflict rendering defect: the composer
+  searched only top-level turns. It now resolves synthetic conflict IDs too.
+- Upstream HTTP 429 errors now produce a rate-limit/retry message without raw
+  provider details. Some early acceptance runs encountered Voyage rate limits.
+  `CHRONICLE_QA_PACE_MS=22000` spaces test operations only; reported `totalMs`
+  excludes this QA pause and includes final trace persistence. App requests still
+  use one model call and have no artificial delay or automatic model retry.
+
+Fresh automated validation after the repairs: **107 JavaScript tests, 57
+retrieval/engine/backend tests, and 14 backend API tests passed**. The production
+build and whitespace checks passed.
+
+Browser QA used a separate origin on port 5174, leaving the existing demo workspace
+on port 5173 untouched. Confirmed: two conflicts from ordinary chat, automatic
+question rendering, deferral/reopening, independent saved answers including
+leave-unresolved, Maya attribution, cached draft restoration, exactly one combined
+replay after both answers, and replay returning to the working terminal. A real
+uploaded memo translated to French with its $20,000 source claim while the separate
+saved-answer section retained the human-selected $15,000. It did not reopen the
+already answered conflict or show a new decision-save badge for the translation.
+
+After backend restart, a fresh API load of
+`workspace-qa-semantic-3b29886f-03dc-4f25-b164-750cc1a400f4` confirmed policy v3,
+two retained lessons, two saved human decisions, and the applied finance precedent
+on the different retention-budget subject.
+
+Request separation follows the
+[official prompt-engineering guidance](https://developers.openai.com/api/docs/guides/prompt-engineering).
+The installed Codex CLI's `exec --help` confirmed its `--output-schema` capability.
+API-key providers remain unverified, and the narrated one-minute presentation
+still requires human rehearsal.
+
+### Final live acceptance evidence
+
+The extended acceptance script completed all assertions in isolated workspace
+`workspace-qa-semantic-35de66bf-ee86-4358-b075-07c328ea91e4` with QA pacing enabled.
+The launch lesson was reused on the next release; the separate finance lesson
+was reused on retention. Policy v3 and both lessons were present on a fresh load.
+For the travel translation, successful Voyage and Atlas receipts returned both
+lessons as candidates, while the engine applied neither and requested a human
+choice. Thus scope isolation was checked against real retrieved candidates.
+
+| Action | Full operation time, including final persistence |
+| --- | ---: |
+| Launch review | 9.58 s |
+| Engineering correction and retrieval readiness | 3.47 s |
+| Saved launch answer (zero model calls) | 0.68 s |
+| Next release using launch lesson | 8.38 s |
+| Acquisition budget review | 9.27 s |
+| Marketing correction and retrieval readiness | 4.84 s |
+| Retention budget using finance lesson | 9.04 s |
+| Travel translation with out-of-scope lessons | 8.96 s |
+| Travel summary during a recorded Voyage failure | 9.11 s |
+| Impossible-date rejection | 9.36 s |
+
+Receipt inspection caught a Voyage failure on the summary step despite the
+successful output assertions. A targeted repeat (`turn-eab4d644`) then passed
+with successful Voyage and Atlas calls, no failed receipt, both lessons returned
+as candidates, neither applied, and the requested summary preserved beside the
+human-choice question. That operation took 10.15 s. The invalid-date step saved
+no extracted fact and visibly reported unavailable memory checking.
+
+These are individual backend/orchestration observations, not browser-rendering
+measurements or latency guarantees. QA pacing did not eliminate every upstream
+failure. A quota-safe, narrated 60-second presentation has not been established
+by this run; the successful checks should not be described as a failure-free
+unpaced rehearsal.
