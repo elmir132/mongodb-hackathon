@@ -8,6 +8,7 @@ from app.config import Settings
 from app.db.memory import MemoryRepository
 from app.db.mongo import MongoRepository
 from app.integrations.danny_retrieval import DannyPrecedentRetriever
+from app.integrations.elmir_engine import ElmirResolutionEngine
 from app.integrations.mocks import EmptyPrecedentRetriever, PassthroughResolutionEngine
 from app.services.container import Services
 from app.services.orchestration import OrchestrationService
@@ -40,7 +41,7 @@ def create_app(
             retriever = DannyPrecedentRetriever()
         else:
             retriever = EmptyPrecedentRetriever()
-    resolution_engine = resolution_engine or PassthroughResolutionEngine()
+    resolution_engine = resolution_engine or ElmirResolutionEngine()
     services = Services(
         repository=repository,
         orchestration=OrchestrationService(repository, retriever, resolution_engine),

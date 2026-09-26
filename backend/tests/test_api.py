@@ -152,3 +152,78 @@ def test_danny_environment_names_are_accepted(monkeypatch) -> None:
     assert settings.mongodb_precedents_collection == "test_precedents"
     assert settings.mongodb_vector_index == "test_vector_index"
     assert settings.voyage_embedding_model == "voyage-4"
+
+
+def test_full_chronicle_loop_through_real_engine() -> None:
+    """End to end through the real ElmirResolutionEngine (not a test double):
+    initial resolution -> human correction -> precedent applied automatically
+    on a fresh, different conflict. This is the actual MVP loop the demo
+    depends on, running through Sahil's real routes/repository."""
+    from app.integrations.elmir_engine import ElmirResolutionEngine
+    from app.integrations.mocks import EmptyPrecedentRetriever
+
+    app = create_app(
+        Settings(storage_mode="memory"),
+        retriever=EmptyPrecedentRetriever(),
+        resolution_engine=ElmirResolutionEngine(),
+    )
+    with TestClient(app) as client:
+        client.post("/facts", json={
+            "subject": "launch", "predicate": "date", "value": "Friday", "source": "Marketing",
+        })
+        client.post("/facts", json={
+            "subject": "launch", "predicate": "date", "value": "Monday", "source": "Engineering",
+        })
+
+        r1 = client.post("/state", json={
+            "conflict_text": "Marketing says Friday, Engineering says Monday",
+            "project_id": "chronicle-demo",
+            "context": {"scope": "launch-readiness", "subject": "launch", "conflict_id": "c1"},
+        })
+        assert r1.status_code == 200
+        resolution_1 = r1.json()["value"]["resolution"]
+        assert resolution_1["status"] == "resolved"
+        # Starting policy: Marketing is the plausible-but-wrong default pick.
+        # supporting_fact_ids[0] is Marketing's, [1] is Engineering's (creation order).
+        engineering_fact_id = resolution_1["supporting_fact_ids"][1]
+        correction = client.post("/state/correct", json={
+            "correct_fact_id": engineering_fact_id,
+            "reason": "Engineering owns launch readiness decisions.",
+            "context": {},
+        })
+        assert correction.status_code == 200
+        corr_value = correction.json()["value"]
+        assert corr_value["resolution_changed"] is True
+        assert corr_value["policy_version"] == 2
+        precedent_id = corr_value["precedent"]["id"]
+
+        client.post("/facts", json={
+            "subject": "launch", "predicate": "date", "value": "Wednesday", "source": "Marketing",
+        })
+        client.post("/facts", json={
+            "subject": "launch", "predicate": "date", "value": "Thursday", "source": "Engineering",
+        })
+        r2 = client.post("/state", json={
+            "conflict_text": "Marketing says Wednesday, Engineering says Thursday",
+            "project_id": "chronicle-demo",
+            "context": {"scope": "launch-readiness", "subject": "launch", "conflict_id": "c2"},
+        })
+        resolution_2 = r2.json()["value"]["resolution"]
+        assert resolution_2["applied_precedent_id"] == precedent_id, (
+            "the correction should be applied automatically to a new, similar conflict"
+        )
+
+
+def test_correct_state_returns_501_without_a_real_engine() -> None:
+    from app.integrations.mocks import EmptyPrecedentRetriever, PassthroughResolutionEngine
+
+    app = create_app(
+        Settings(storage_mode="memory"),
+        retriever=EmptyPrecedentRetriever(),
+        resolution_engine=PassthroughResolutionEngine(),
+    )
+    with TestClient(app) as client:
+        response = client.post("/state/correct", json={
+            "correct_fact_id": "whatever", "reason": "why", "context": {},
+        })
+    assert response.status_code == 501

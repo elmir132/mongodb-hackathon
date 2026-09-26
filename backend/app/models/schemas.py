@@ -34,6 +34,14 @@ class StateResponse(BaseModel):
     updated_at: datetime
 
 
+class StateCorrectRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    correct_fact_id: str = Field(min_length=1, max_length=250)
+    reason: str = Field(min_length=1, max_length=2000)
+    context: dict[str, Any] = Field(default_factory=dict)
+
+
 class OverrideCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

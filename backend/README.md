@@ -1,28 +1,39 @@
-gracefully to session-only precedents (see the `retrieval-fallback` trace
-event) instead of erroring. Set both env vars (see `.env.example` at the repo
-root) to run against the real Atlas Hackathon Sandbox.
 # Chronicle backend
 
-The repository now contains two cooperating backend surfaces:
+This is the one real backend surface: Sahil's persistence-focused FastAPI
+service (`backend/app/`) for facts, state, overrides, and persisted SSE
+events, now wired to the real Chronicle logic instead of a mock:
 
-- `backend/app.py` is the main demo API, wiring Elmir's resolution engine and
-  Danny's retrieval into the conflict workflow.
-- `backend/app/main.py` is the persistence-focused FastAPI service for facts,
-  state, overrides, and persisted SSE events. It supports MongoDB transactions
-  and the repeatable `scripts/seed_demo.py` Atlas seed.
+- `app/integrations/elmir_engine.py` (`ElmirResolutionEngine`) is the default
+  `resolution_engine` in `app/main.py`, replacing `PassthroughResolutionEngine`.
+  It adapts Sahil's generic `subject/predicate/value/source` facts into
+  Elmir's real `resolution_engine.py` (weighted authority+recency scoring,
+  precedent lookup, and learning from corrections), and implements the
+  `.correct()` method that `POST /state/correct` calls.
+- `app/integrations/danny_retrieval.py` (`DannyPrecedentRetriever`) plugs in
+  Danny's Atlas/Voyage vector search when `PRECEDENT_STORE=atlas` and
+  `VOYAGE_API_KEY` is set; it falls back to `EmptyPrecedentRetriever` (in
+  `mocks.py`) in memory mode. `ElmirResolutionEngine` also keeps its own
+  session-local precedent store so a correction made moments ago is applied
+  immediately, without waiting for it to be embedded and upserted into Atlas.
 
-Run the main demo API with `uvicorn backend.app:app --reload --port 8000` from
-the repository root. The persistence service can be run from `backend/` with
-`uvicorn app.main:app --reload`. Keep credentials in `.env`; never commit the
-real MongoDB URI or Voyage key.
+An earlier standalone `backend/app.py` (a single-file prototype wiring the
+same resolution engine) has been retired now that this package is the real,
+tested integration point — having both caused a literal Python import
+collision (`app.py` and `app/` in the same directory), on top of being two
+backend surfaces to keep in sync.
 
-The main demo API exposes `/api/health`, `/api/demo/reset`,
-`/api/conflicts/resolve`, `/api/conflicts/correct`, `/api/policy`, and
-`/api/trace`. The persistence service exposes `/health`, `/facts`, `/state`,
-`/override`, and `/events`. See the root `README.md`, `INTEGRATION.md`, and
-`ATLAS_SETUP.md` for the current integration contract.
+Run it from `backend/`: `uvicorn app.main:app --reload --port 8000`. Keep
+credentials in `.env`; never commit the real MongoDB URI or Voyage key.
 
-To seed the persistence service in Atlas mode, run from `backend/`:
+Endpoints: `GET /health`, `POST /facts`, `GET /facts`, `GET /state`,
+`POST /state` (resolve a conflict — requires `context.scope` and
+`context.subject`), `POST /state/correct` (record a human correction —
+returns 501 if the wired resolution engine doesn't implement `.correct()`),
+`POST /override`, `GET /events` (SSE). See the root `README.md`,
+`INTEGRATION.md`, and `ATLAS_SETUP.md` for the wider integration contract.
+
+To seed the service in Atlas mode, run from `backend/`:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\seed_demo.py

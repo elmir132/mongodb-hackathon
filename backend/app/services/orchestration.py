@@ -32,3 +32,25 @@ class OrchestrationService:
             context=resolution_context,
         )
         return self.repository.save_state(value)
+
+    def correct_state(
+        self,
+        *,
+        correct_fact_id: str,
+        reason: str,
+        context: dict[str, Any],
+    ) -> dict:
+        """Human correction -> new precedent + versioned policy update, via
+        the resolution engine (not the generic /override key-value store,
+        which intentionally has no learning semantics — see mocks.py and
+        test_state_run_uses_integrations_and_keeps_override_separate).
+        Requires the engine to implement .correct(); PassthroughResolutionEngine
+        does not, and this raises clearly rather than silently no-op'ing."""
+        correct = getattr(self.engine, "correct", None)
+        if correct is None:
+            raise NotImplementedError(
+                f"{self.engine.__class__.__name__} does not implement correct(); "
+                "wire a real ResolutionEngine (e.g. ElmirResolutionEngine) to use corrections."
+            )
+        value = correct(correct_fact_id=correct_fact_id, reason=reason, context=context)
+        return self.repository.save_state(value)

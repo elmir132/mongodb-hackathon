@@ -11,6 +11,7 @@ from app.models.schemas import (
     HealthResponse,
     OverrideCreate,
     OverrideResponse,
+    StateCorrectRequest,
     StateResponse,
     StateRunRequest,
 )
@@ -59,6 +60,24 @@ def resolve_state(payload: StateRunRequest, request: Request) -> dict:
         )
     except PrecedentRetrievalUnavailable as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
+
+
+@router.post("/state/correct", response_model=StateResponse)
+def correct_state(payload: StateCorrectRequest, request: Request) -> dict:
+    """Human correction -> real precedent + versioned policy update via the
+    resolution engine. Distinct from POST /override, which is a plain
+    key-value note with no learning semantics — see
+    test_state_run_uses_integrations_and_keeps_override_separate."""
+    try:
+        return request.app.state.services.orchestration.correct_state(
+            correct_fact_id=payload.correct_fact_id,
+            reason=payload.reason,
+            context=payload.context,
+        )
+    except NotImplementedError as error:
+        raise HTTPException(status_code=501, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @router.post("/override", response_model=OverrideResponse, status_code=201)
