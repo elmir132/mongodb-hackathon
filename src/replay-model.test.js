@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { reachedStage, replayStatus, activeOperation, routes, segmentStyle } from './replay-model.js';
+import { reachedStage, replayStatus, activeOperation, routes, segmentStyle, replayOutput } from './replay-model.js';
 import { processPrompt, seedState } from './memory.js';
 
 test('missing stages never appear completed and confirmation gates saved status', () => {
@@ -10,6 +10,19 @@ test('missing stages never appear completed and confirmation gates saved status'
   assert.equal(replayStatus({ trace }, 4).saved, true);
   assert.equal(replayStatus({ trace }, 5).committed, false);
   assert.equal(replayStatus({ trace }, 6).committed, true);
+});
+
+test('narration distinguishes retrieved candidates, applied lessons, and failed receipts', () => {
+  const output = 'Original recorded explanation';
+  const search = { service: 'vector', stage: 'search', status: 'succeeded', candidates: [{ precedent_id: 'p1' }] };
+  assert.match(replayOutput({ events: [search], output }), /1 candidate lesson/);
+  assert.doesNotMatch(replayOutput({ events: [search], output }), /applied/);
+  const turn = { policy: 2, candidates: [{ id: 'f1', value: 'Thursday' }], applied: 'stale-other-lesson' };
+  const policy = { service: 'engine', stage: 'policy', status: 'succeeded', selectedFactId: 'f1', applied: null };
+  assert.match(replayOutput({ events: [policy], turn, output }), /Thursday selected · current policy/);
+  assert.match(replayOutput({ events: [{ ...policy, applied: 'p1' }], turn, output }), /scoped lesson applied/);
+  assert.equal(replayOutput({ events: [{ ...policy, status: 'failed' }], turn, output }), output);
+  assert.equal(replayOutput({ events: [{ ...policy, selectedFactId: 'unknown' }], turn, output }), output);
 });
 
 test('local traces never animate unconnected Voyage or Vector Search', async () => {

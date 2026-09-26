@@ -6,7 +6,7 @@ import './conflict-question.css';
 
 export default function ConflictQuestion({ turn, busy, error, onAnswer, onDismiss }) {
   const [choice, setChoice] = useState('');
-  const [reason, setReason] = useState('');
+  const [reason, setReason] = useState(turn.authorityRequest?.reason || '');
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [remember, setRemember] = useState(false);
   const selected = turn.candidates.find(fact => fact.id === choice);
@@ -16,7 +16,7 @@ export default function ConflictQuestion({ turn, busy, error, onAnswer, onDismis
   const sourcesId = `conflict-sources-${turn.id}`;
   return <section className="conflict-question" aria-labelledby={titleId} onKeyDown={event => { if (event.key === 'Escape' && sourcesOpen) { event.stopPropagation(); setSourcesOpen(false); } }}>
     {sourcesOpen && <div className="conflict-sources" id={sourcesId} role="region" aria-label="Context files">
-      {turn.candidates.map(fact => <div className="conflict-evidence" key={fact.id}><strong>{sourceLabel(fact)} · {fact.value}</strong><span>{fact.document || 'Project update'}{fact.sourceDate ? ` · ${fact.sourceDate}` : ''}</span><p>{fact.text?.replace(/^#{1,6}\s+/gm, '')}</p></div>)}
+      {turn.candidates.map(fact => <div className="conflict-evidence" key={fact.id}><strong>{sourceLabel(fact)} · {fact.value}</strong><span>{fact.document || 'Project update'}{fact.sourceDate ? ` · ${fact.sourceDate}` : ''}</span><p>{fact.text?.replace(/^#{1,6}\s+/gm, '')}</p>{fact.provenance?.contextQuote && <p>Subject context: {fact.provenance.contextQuote}</p>}</div>)}
     </div>}
     <div className="conflict-question-content">
     <h3 id={titleId}>{(turn.conflictQuestion || fallbackConflictQuestion(turn.subject, turn.candidates))?.question}</h3>

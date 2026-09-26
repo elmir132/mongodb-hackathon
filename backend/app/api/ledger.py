@@ -175,8 +175,25 @@ def validate_claim_provenance(state):
             text = record.get('text')
         elif source_ref != 'prompt':
             raise HTTPException(400, 'Extracted claims require a recorded source reference.')
-        if not isinstance(text, str) or quote not in text or fact.get('source') != record.get('source') or fact.get('source') != turn.get('source'):
+        if not isinstance(text, str) or quote not in text or record.get('source') != turn.get('source'):
             raise HTTPException(400, 'Extracted claim evidence and source must match the retained original.')
+        reporter = provenance.get('reportedSource')
+        if reporter is not None:
+            match = re.match(r'^([A-Za-z][A-Za-z0-9 &-]{0,59}?)\s+(?:says|said|reports|reported)\s+', quote.strip(), re.I)
+            submitted = {'source': turn.get('source')}
+            if turn.get('author'):
+                submitted['author'] = turn['author']
+            if (not match or reporter != match.group(1).strip() or fact.get('source') != reporter
+                    or fact.get('author') or fact.get('submittedBy') != submitted
+                    or len(re.findall(r'\b(?:says|said|reports|reported)\b', quote, re.I)) != 1):
+                raise HTTPException(400, 'Reported claims require explicit attribution and a separate recorded submitter.')
+        elif fact.get('source') != turn.get('source'):
+            raise HTTPException(400, 'Extracted claim source must match its sender or explicit reported attribution.')
+        context = provenance.get('contextQuote')
+        if context is not None:
+            parts = [part.strip() for part in re.split(r'(?<=[.!?])\s+|\n+', text) if part.strip()]
+            if not reporter or not any(part == quote and index > 0 and parts[index - 1] == context for index, part in enumerate(parts)):
+                raise HTTPException(400, 'Shorthand claims require the immediately preceding source passage.')
 
 
 def saved_lessons(doc):

@@ -299,3 +299,29 @@ def test_retired_versions_do_not_fill_the_vector_candidate_limit(monkeypatch):
     candidates = next(event['candidates'] for event in result['trace'] if event['stage'] == 'search')
     assert [candidate['precedent_id'] for candidate in candidates] == [newest['lesson']['id']]
     assert len(ledger.read('workspace-test')['precedentIds']) == 7
+
+
+def test_reported_sources_preserve_submitter_and_require_literal_attribution():
+    workspace()
+    state = ledger.public(ledger.read('workspace-test'))
+    first = 'Marketing says the next release is Wednesday.'
+    quote = 'Engineering says Thursday.'
+    turn = {'id': 'reported-review', 'prompt': first + ' ' + quote, 'source': 'Marketing', 'author': 'Maya', 'attachments': []}
+    fact = {'id': 'reported', 'subject': 'next release', 'attribute': 'date', 'scope': 'launch readiness',
+            'source': 'Engineering', 'value': 'Thursday', 'text': quote, 'submittedBy': {'source': 'Marketing', 'author': 'Maya'},
+            'provenance': {'method': 'model-extracted', 'turnId': turn['id'], 'sourceRef': 'prompt', 'quote': quote,
+                           'reportedSource': 'Engineering', 'contextQuote': first}}
+    state['turns'].append(turn)
+    state['facts'].append(fact)
+    ledger.save(ledger.SaveRequest(workspaceId='workspace-test', state=state))
+    for change in ({'source': 'CEO'}, {'author': 'Alex'}, {'submittedBy': {'source': 'Engineering'}},
+                   {'provenance': {**fact['provenance'], 'reportedSource': 'CEO'}},
+                   {'provenance': {**fact['provenance'], 'contextQuote': 'Invented context.'}}):
+        invalid = copy.deepcopy(state)
+        invalid['facts'][-1].update(change)
+        with pytest.raises(ledger.HTTPException):
+            ledger.save(ledger.SaveRequest(workspaceId='workspace-test', state=invalid))
+    state['turns'][-1]['attachments'] = [{'name': 'reported.md', 'text': turn['prompt']}]
+    state['documents'] = [{'id': 'reported-doc', 'name': 'reported.md', 'text': turn['prompt'], 'source': 'Marketing', 'author': 'Maya'}]
+    state['facts'][-1].update(documentId='reported-doc', provenance={**fact['provenance'], 'sourceRef': 'attachment:0'})
+    ledger.save(ledger.SaveRequest(workspaceId='workspace-test', state=state))

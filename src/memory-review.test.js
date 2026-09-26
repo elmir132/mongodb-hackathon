@@ -261,3 +261,53 @@ test('a relevant read preserves recorded semantic disagreements without replayin
   assert.equal(groups.length,1); assert.equal(groups[0].conflict,true); assert.equal(groups[0].revision,false);
   assert.equal(groups[0].relations.length,1);
 });
+
+test('reported facts persist submitter identity without inventing claim authors',async()=>{
+  const first='Marketing says the launch is Friday.', second='Engineering says the launch is Monday.';
+  const fields={subject:'launch',attribute:'date',scope:'launch readiness'};
+  const fx=fixture(raw([claim(first,{...fields,value:'Friday'}),claim(second,{...fields,ref:'c2',value:'Monday'})]));
+  const result=await run(initial([]),`${first} ${second}`,fx);
+  assert.equal(result.turn.conflict,true);
+  assert.deepEqual(result.turn.candidates.map(f=>f.source),['Marketing','Engineering']);
+  for (const fact of result.turn.incoming) {
+    assert.equal(fact.author,undefined); assert.deepEqual(fact.submittedBy,{source:'Marketing',author:'Maya'});
+    assert.equal(fact.provenance.reportedSource,fact.source);
+  }
+});
+
+test('omitted reported shorthand is quoted in the reply and requests clarification',async()=>{
+  const prompt='Marketing says the next release is Wednesday. Engineering says Thursday.';
+  const fx=fixture(raw([claim('Marketing says the next release is Wednesday.',{subject:'next release',attribute:'date',scope:'launch readiness',value:'Wednesday'})]));
+  const {turn}=await run(initial([]),prompt,fx);
+  assert.equal(turn.memoryAnalysis.status,'partial'); assert.match(turn.answer,/Engineering says Thursday/);
+  assert.match(turn.answer,/Please clarify/); assert.doesNotMatch(turn.answer,/Reviewed the supplied update/);
+});
+
+test('authority statement opens a fresh explicit question, without a correction or policy update',async()=>{
+  const {currentConflictQuestion,needsConflictReview}=await import('./conflict-review.js');
+  const {completedReplayCycle}=await import('./replay-cycle.js');
+  const facts=[{id:'m',subject:'launch',attribute:'date',scope:'launch readiness',value:'Friday',source:'Marketing'}, {id:'e',subject:'launch',attribute:'date',scope:'launch readiness',value:'Monday',source:'Engineering'}];
+  const previous=answeredState(facts,'m');
+  const fx=fixture(raw());
+  const prompt='Engineering owns launch readiness for this project.';
+  const result=await run(previous,prompt,fx);
+  assert.equal(result.turn.timing.modelCalls,0); assert.equal(result.turn.correction,false);
+  assert.equal(result.turn.incoming.length,0); assert.equal(result.turn.authorityRequest.reason,prompt);
+  assert.equal(result.turn.requiresConfirmation,true); assert.ok(needsConflictReview(result.state,result.turn));
+  assert.equal(currentConflictQuestion(result.state,undefined).id,result.turn.id);
+  assert.equal(completedReplayCycle(result.state),null);
+  assert.equal(result.state.conflictReviews.length,1); assert.deepEqual(result.state.facts,previous.facts);
+  assert.match(result.turn.answer,/No choice or policy change has been saved/);
+  assert.ok(fx.calls.includes('resolve'));
+});
+
+test('answering reopened authority context preserves the original review in one completed replay',async()=>{
+  const {completedReplayCycle}=await import('./replay-cycle.js');
+  const facts=[{id:'m',subject:'launch',attribute:'date',scope:'launch readiness',value:'Friday',source:'Marketing'}, {id:'e',subject:'launch',attribute:'date',scope:'launch readiness',value:'Monday',source:'Engineering'}];
+  const fx=fixture(raw([],[],facts.map(f=>f.id)));
+  const {normalizeConversations}=await import('./conversations.js');
+  const original=await run(normalizeConversations(initial(facts)),'Review the launch.',fx);
+  const reopened=await run(original.state,'Engineering owns launch readiness for this project.',fx);
+  const answered=await processPrompt(reopened.state,'Use Monday.','Marketing',()=>{},undefined,[],{conflictReview:{conflictTurnId:reopened.turn.id,factId:'e',rememberAuthority:false,reason:reopened.turn.authorityRequest.reason}});
+  assert.deepEqual(completedReplayCycle(answered.state).turns.map(t=>t.id),[original.turn.id,reopened.turn.id,answered.turn.id]);
+});

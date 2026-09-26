@@ -216,3 +216,18 @@ test('equivalent same-source duplicates retain the saved answer without broadeni
   }
   assert.equal(matchingConflictReview(state, [candidates[1], equivalent]), null, 'original evidence cannot disappear');
 });
+
+test('authority context is scoped to an unambiguous recorded conflict in this chat', async () => {
+  const {authorityReviewRequest}=await import('./conflict-review.js');
+  const facts=[{id:'m',subject:'launch',scope:'launch readiness',value:'Friday',source:'Marketing'}, {id:'e',subject:'launch',scope:'launch readiness',value:'Monday',source:'Engineering'}];
+  const turn={id:'launch-review',chatId:'chat',answer:'Review',status:'completed',conflict:true,subject:'launch',candidates:facts};
+  const state={turns:[turn]};
+  assert.equal(authorityReviewRequest(state,'Engineering owns launch readiness for this project.','chat').conflictTurnId,turn.id);
+  for (const prompt of ['Does Engineering own launch readiness for this project?', 'Engineering owns budget for this project.', 'Maybe Engineering owns launch readiness for this project.', 'Engineering owns launch readiness for another project.']) {
+    assert.equal(authorityReviewRequest(state,prompt,'chat'),null,prompt);
+  }
+  assert.equal(authorityReviewRequest(state,'Engineering owns launch readiness for this project.','other'),null);
+  assert.equal(authorityReviewRequest(state,'Engineering owns launch readiness for this project.','chat',[{text:'memo'}]),null);
+  state.turns.push({...turn,id:'next',subject:'next release',candidates:facts.map(f=>({...f,subject:'next release'}))});
+  assert.equal(authorityReviewRequest(state,'Engineering owns launch readiness for this project.','chat'),null,'several subjects require clarification');
+});

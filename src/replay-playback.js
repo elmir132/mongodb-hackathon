@@ -1,9 +1,21 @@
 import { packetKeyframes } from './replay-model.js';
 
+export const REPLAY_TARGET_MS = 45_000;
+export const REPLAY_RETURN_MS = { flatten: 1250, zoom: 700 };
+
+// Compress long recordings for narration, without padding shorter requests or
+// changing stored events. A manually replayed step keeps its readable pace.
+export function playbackTiming(steps) {
+  const recordedMs = steps.reduce((total, step) => total + step.duration, 0);
+  const returnMs = REPLAY_RETURN_MS.flatten + REPLAY_RETURN_MS.zoom;
+  const rate = Math.max(1, recordedMs / (REPLAY_TARGET_MS - returnMs));
+  return { rate, durationMs: recordedMs / rate + (steps.length ? returnMs : 0) };
+}
+
 // A single clock owns both the dot and the caption. A caption update must never
 // start a second animation or rewind the current one.
 export function createPlayback(steps) {
-  return { steps, frames: steps.map(packetKeyframes), cursor: 0, elapsed: 0 };
+  return { steps, frames: steps.map(packetKeyframes), cursor: 0, elapsed: 0, rate: playbackTiming(steps).rate };
 }
 export function seekPlayback(playback, cursor) {
   playback.cursor = cursor;
@@ -12,7 +24,7 @@ export function seekPlayback(playback, cursor) {
 export function advancePlayback(playback, delta, mode) {
   const step = playback.steps[playback.cursor];
   if (!step) return 'return';
-  playback.elapsed = Math.min(step.duration, playback.elapsed + Math.max(0, delta));
+  playback.elapsed = Math.min(step.duration, playback.elapsed + Math.max(0, delta) * (mode === 'step' ? 1 : playback.rate));
   if (playback.elapsed < step.duration) return 'continue';
   if (mode === 'step') return 'pause';
   if (playback.cursor === playback.steps.length - 1) return 'return';

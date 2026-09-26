@@ -36,6 +36,26 @@ export function serviceEvidence(turn, id, cursor = Infinity) {
     current: events.length ? `${events.length} recorded operations in this replay${failed ? ' · includes a failure' : ''}. Inspect their receipts below.` : upcoming ? 'This call appears later in the recording.' : absent };
 }
 
+// Narration uses the receipt's result; IDs, scores and full explanations remain
+// in the inspector. A retrieved candidate must never read as an applied lesson.
+export function replayOutput(step) {
+  const receipt = step.events?.findLast(event => event.status === 'succeeded');
+  if (receipt?.service === 'vector' && receipt.stage === 'search' && Array.isArray(receipt.candidates)) {
+    const count = receipt.candidates.length;
+    return `${count} candidate ${count === 1 ? 'lesson' : 'lessons'} returned for applicability checking`;
+  }
+  if (receipt?.service === 'voyage' && Number.isFinite(receipt.dimensions)) {
+    return `${receipt.dimensions.toLocaleString()}-dimension embedding${receipt.model ? ` · ${receipt.model}` : ''}`;
+  }
+  if (receipt?.service === 'engine' && receipt.stage === 'policy') {
+    if (receipt.policyDiff) return `Scoped policy v${receipt.policyDiff.previous_version} → v${receipt.policyDiff.new_version}`;
+    const fact = step.turn?.candidates?.find(item => item.id === receipt.selectedFactId);
+    if (fact) return `${fact.value} selected · ${receipt.applied ? 'scoped lesson applied' : 'current policy'} · policy v${step.turn.policy}`;
+    if (receipt.selectedFactId === null) return 'No justified selection · human input needed';
+  }
+  return step.output;
+}
+
 export function activeOperation(event) {
   if (!event) return { node: null, route: null };
   if (event.service === 'model' && event.route === 'model-answer') return { node: 'terminal', route: 'model-answer' };
@@ -316,12 +336,12 @@ function describeProcess(turn, event) {
 // Held per service: consecutive stages don't make the camera oscillate.
 export function directorPose(node) {
   const poses = {
-    terminal: { x: 0, y: 0, rx: 16, ry: -12, zoom: 1 },
-    atlas: { x: 330, y: -370, rx: 18, ry: -22, zoom: 1.3 },
-    engine: { x: -230, y: 180, rx: 18, ry: -22, zoom: 1.3 },
-    model: { x: -220, y: -20, rx: 18, ry: -22, zoom: 1.3 },
-    voyage: { x: -45, y: -240, rx: 18, ry: -22, zoom: 1.3 },
-    vector: { x: -420, y: -190, rx: 18, ry: -22, zoom: 1.3 },
+    terminal: { x: 0, y: 0, rx: 16, ry: -9, zoom: 1 },
+    atlas: { x: 330, y: -370, rx: 18, ry: -16.5, zoom: 1.3 },
+    engine: { x: -230, y: 180, rx: 18, ry: -16.5, zoom: 1.3 },
+    model: { x: -220, y: -20, rx: 18, ry: -16.5, zoom: 1.3 },
+    voyage: { x: -45, y: -240, rx: 18, ry: -16.5, zoom: 1.3 },
+    vector: { x: -420, y: -190, rx: 18, ry: -16.5, zoom: 1.3 },
   };
   return poses[node] || poses.terminal;
 }

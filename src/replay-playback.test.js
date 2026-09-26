@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildReplaySteps, TELEPORT_MS } from './replay-model.js';
-import { createPlayback, seekPlayback, advancePlayback, packetStyle } from './replay-playback.js';
+import { createPlayback, seekPlayback, advancePlayback, packetStyle, playbackTiming, REPLAY_RETURN_MS } from './replay-playback.js';
 const steps = () => buildReplaySteps({ trace: [{ id: 'write', stage: 'storage', service: 'atlas' }, { id: 'saved', stage: 'saved' }, { id: 'embed', stage: 'embedding', service: 'voyage', route: 'embed', status: 'succeeded' }, { id: 'search', stage: 'search', service: 'vector', route: 'search', status: 'succeeded' }] });
 
 test('autoplay advances once and continues the stack instead of replaying its first half', () => {
@@ -52,4 +52,40 @@ test('the shared clock preserves the hidden 250 ms teleport without diagonal tra
   assert.notEqual(packetStyle(playback).transform, from);
   advancePlayback(playback, TELEPORT_MS / 2, 'auto');
   assert.equal(packetStyle(playback).opacity, 1);
+});
+
+test('long autoplay fits the narration budget and retains every event; step replay stays at its base pace', () => {
+  const trace = Array.from({ length: 24 }, (_, id) => ({ id, stage: 'storage', service: id % 2 ? 'voyage' : 'atlas' }));
+  const recording = { trace };
+  const snapshot = JSON.stringify(recording);
+  const playback = createPlayback(buildReplaySteps(recording));
+  assert.ok(playback.rate > 1);
+  assert.equal(playbackTiming(playback.steps).durationMs, 45_000);
+  const visited = [playback.steps[0].id];
+  let wallMs = 0;
+  while (true) {
+    const duration = playback.steps[playback.cursor].duration / playback.rate;
+    wallMs += duration;
+    const action = advancePlayback(playback, duration + .000001, 'auto');
+    if (action === 'return') break;
+    assert.equal(action, 'next');
+    visited.push(playback.steps[playback.cursor].id);
+  }
+  assert.deepEqual(visited, trace.map(event => event.id));
+  assert.ok(Math.abs(wallMs + REPLAY_RETURN_MS.flatten + REPLAY_RETURN_MS.zoom - 45_000) < .001);
+  seekPlayback(playback, 2);
+  advancePlayback(playback, 500, 'step');
+  assert.equal(playback.elapsed, 500);
+  assert.equal(JSON.stringify(recording), snapshot);
+});
+
+test('short recordings are not padded or accelerated and pause keeps the packet position', () => {
+  const playback = createPlayback(steps());
+  assert.equal(playback.rate, 1);
+  assert.ok(playbackTiming(playback.steps).durationMs < 45_000);
+  advancePlayback(playback, 600, 'auto');
+  const before = packetStyle(playback);
+  advancePlayback(playback, 0, 'auto');
+  assert.deepEqual(packetStyle(playback), before);
+  assert.equal(playbackTiming([]).durationMs, 0);
 });

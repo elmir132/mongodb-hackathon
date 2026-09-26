@@ -33,7 +33,7 @@ export function needsConflictReview(state, turn) {
   if (turn?.conflicts?.length) return turn.conflicts.some(group => needsConflictReview(state, findConflictTurn(state, group.id)));
   if (!turn?.answer || !turn.conflict || turn.reviewedConflictId || (turn.applied && !turn.requiresConfirmation)) return false;
   if (Object.hasOwn(turn, 'conflictQuestion') && !turn.conflictQuestion) return false;
-  if (state.conflictReviews?.some(review => review.conflictTurnId === turn.id) || matchingConflictReview(state, turn.candidates)) return false;
+  if (state.conflictReviews?.some(review => review.conflictTurnId === turn.id) || (!turn.authorityRequest && matchingConflictReview(state, turn.candidates))) return false;
   const index = state.turns.findIndex(item => item.id === (turn.parentTurnId || turn.id));
   return !state.turns.slice(index + 1).some(item => item.correction && !item.reviewedConflictId && item.chatId === turn.chatId && item.subject === turn.subject);
 }
@@ -97,4 +97,22 @@ export function canRememberAuthority(turn, fact) {
     && candidates.some(item => item.id === fact.id) && candidates.length >= 2 && scope
     && candidates.every(item => authorityScope(item) === scope && authorityAttribute(item) === authorityAttribute(fact))
     && new Set(candidates.map(item => item.source?.trim().toLowerCase())).size > 1);
+}
+
+// A narrow explicit authority statement is a request to review recorded
+// evidence, never consent to save a choice or a reusable policy.
+export function authorityReviewRequest(state, prompt, chatId, attachments = []) {
+  if (attachments.length) return null;
+  const match = /^\s*([A-Za-z][A-Za-z0-9 &-]{0,59}?)\s+(?:owns|is responsible for)\s+(.+?)\s+for this project[.!]?\s*$/i.exec(prompt);
+  if (!match) return null;
+  const source = normalizeAuthorityKey(match[1]), scope = normalizeAuthorityKey(match[2]);
+  const turns = state.turns.filter(turn => turn.chatId === chatId && turn.answer && turn.status === 'completed');
+  const groups = turns.flatMap(turn => turn.conflicts?.length ? turn.conflicts.map(group => findConflictTurn(state, group.id)) : [turn]);
+  const matches = groups.filter(turn => turn.conflict && turn.candidates?.some(fact =>
+    normalizeAuthorityKey(fact.source) === source && canRememberAuthority(turn, fact)
+    && [normalizeAuthorityKey(fact.scope), normalizeAuthorityKey(fact.subject), normalizeAuthorityKey(`${fact.subject} ${authorityAttribute(fact)}`)] .includes(scope)));
+  // A domain shared by several different subjects is ambiguous. Do not guess.
+  if (new Set(matches.map(turn => `${turn.subject}|${authorityScope(turn.candidates[0])}`)).size !== 1) return null;
+  const turn = matches.at(-1);
+  return turn ? { conflictTurnId: turn.id, reason: prompt.trim(), candidates: turn.candidates, subject: turn.subject } : null;
 }

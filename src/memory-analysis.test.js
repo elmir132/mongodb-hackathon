@@ -141,3 +141,38 @@ test('omission checks do not turn greetings, questions, hypotheticals or headers
     assert.equal(result.status,'validated',prompt); assert.equal(result.coverage.omitted.length,0,prompt);
   }
 });
+
+test('reported departments stay separate from the sender and invented model identities', () => {
+  const first = 'Marketing says the launch is Friday.';
+  const second = 'Engineering says the launch is Monday.';
+  const fields = {subject:'launch',attribute:'date',scope:'launch readiness'};
+  const output = validateMemoryAnalysis(analysis([
+    claim(first,{...fields,value:'Friday',source:'CEO',author:'Invented'}),
+    claim(second,{...fields,ref:'c2',value:'Monday'}),
+  ]),context(`${first} ${second}`,[]));
+  assert.equal(output.status,'validated');
+  assert.deepEqual(output.claims.map(c=>c.source),['Marketing','Engineering']);
+  assert.ok(output.claims.every(c=>!c.author && c.reportedSource===c.source));
+  const stripped = validateMemoryAnalysis(analysis([claim('the launch is Monday',{...fields,value:'Monday'})]),context(second,[]));
+  assert.equal(stripped.claims.length,0,'cannot strip the reporter to impersonate the sender');
+  const merged = validateMemoryAnalysis(analysis([claim(`${first} ${second}`,{...fields,value:'Monday'})]),context(`${first} ${second}`,[]));
+  assert.equal(merged.claims.length,0,'cannot assign another reporter’s value to Marketing');
+});
+
+test('shorthand has exact adjacent context and omissions stay visible', () => {
+  const first = 'Marketing says the next release is Wednesday.';
+  const second = 'Engineering says Thursday.';
+  const fields = {subject:'next release',attribute:'date',scope:'launch readiness'};
+  const claims = [claim(first,{...fields,value:'Wednesday'}),claim(second,{...fields,ref:'c2',value:'Thursday',contextQuote:first})];
+  const output = validateMemoryAnalysis(analysis(claims),context(`${first} ${second}`,[]));
+  assert.equal(output.status,'validated'); assert.equal(output.claims[1].contextQuote,first);
+  assert.equal(output.claims[1].source,'Engineering');
+  const missing = validateMemoryAnalysis(analysis(claims.slice(0,1)),context(`${first} ${second}`,[]));
+  assert.equal(missing.status,'partial'); assert.deepEqual(missing.coverage.omitted,[{sourceRef:'prompt',quote:second}]);
+  for (const prompt of [second,`${first} The budget is $50. ${second}`]) {
+    const rejected = validateMemoryAnalysis(analysis([claims[1]]),context(prompt,[]));
+    assert.equal(rejected.claims.length,0,'cannot borrow absent or distant context');
+  }
+  const unsupported = validateMemoryAnalysis(analysis([claims[0],{...claims[1],contextQuote:null}]),context(`${first} ${second}`,[]));
+  assert.equal(unsupported.status,'partial'); assert.equal(unsupported.claims.length,1);
+});

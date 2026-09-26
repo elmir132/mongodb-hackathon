@@ -10,7 +10,7 @@ export const MEMORY_REVIEW_SCHEMA = object({
   conflictQuestion: { type: 'null' },
   memoryAnalysis: object({
     claims: list(object({
-      ref: text, sourceRef: text, quote: text, subject: text,
+      ref: text, sourceRef: text, quote: text, contextQuote: nullableText, subject: text,
       attribute: { type: 'string', enum: ['date', 'owner', 'budget', 'status'] },
       scope: text, value: text, validFrom: nullableText, validTo: nullableText,
     }), 8),

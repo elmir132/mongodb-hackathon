@@ -17,6 +17,21 @@ export function completedReplayCycle(state, chatId = state.activeChatId) {
     original = turns.find(turn => turn.id === (reviewed?.parentTurnId || last.reviewedConflictId));
     const review = state.conflictReviews?.find(item => item.resolutionTurnId === last.id && item.conflictTurnId === reviewed?.id);
     if (!review || !isComplete(original)) return null;
+    if (original.authorityRequest) {
+      const linked = new Set([original.id]);
+      let current = original;
+      while (current?.authorityRequest) {
+        const prior = findConflictTurn(state, current.authorityRequest.conflictTurnId);
+        current = turns.find(turn => turn.id === (prior?.parentTurnId || prior?.id));
+        if (!current || linked.has(current.id)) break;
+        linked.add(current.id);
+      }
+      const related = turns.filter(turn => linked.has(turn.id));
+      if (related.some(turn => !isComplete(turn) || needsConflictReview(state, turn))) return null;
+      const conflictIds = new Set(related.flatMap(turn => [turn.id, ...(turn.conflicts || []).map(group => group.id)]));
+      const cycle = turns.filter(turn => linked.has(turn.id) || conflictIds.has(turn.reviewedConflictId));
+      return cycle.every(isComplete) ? { id: last.id, turns: cycle } : null;
+    }
     if (original.conflicts?.length) {
       if (needsConflictReview(state, original)) return null;
       const ids = new Set(original.conflicts.map(group => group.id));

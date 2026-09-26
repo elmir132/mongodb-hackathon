@@ -1,5 +1,5 @@
 import { isDecisionTurn } from './decision-status.js';
-import { authorityScope, authorityLabel, findConflictTurn, canRememberAuthority, needsConflictReview, matchingConflictReview, fallbackConflictQuestion, validateConflictQuestion } from './conflict-review.js';
+import { authorityScope, authorityLabel, authorityReviewRequest, findConflictTurn, canRememberAuthority, needsConflictReview, matchingConflictReview, fallbackConflictQuestion, validateConflictQuestion } from './conflict-review.js';
 import { materializeClaims, memoryEvidence, savedAnswerLookup, decisionSummary } from './memory-review.js';
 import { reviewTask } from '../server/review-task.mjs';
 // One orchestration path for persisted turns. The legacy parser remains an
@@ -7,7 +7,9 @@ import { reviewTask } from '../server/review-task.mjs';
 export const STORAGE_KEY = 'chronicle.local-demo.v3';
 // Fictional people in the labeled example workspace; roles remain policy keys.
 export const DEMO_MEMBERS = { Marketing: 'Maya', Engineering: 'Alex' };
-export const sourceLabel = ({ source = 'You', author }) => author ? `${author} [${source}]` : source;
+export const sourceLabel = ({ source = 'You', author, submittedBy }) => submittedBy
+  ? `${source} (reported by ${submittedBy.author ? `${submittedBy.author} [${submittedBy.source}]` : submittedBy.source})`
+  : author ? `${author} [${source}]` : source;
 const days = 'Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday';
 const id = (prefix) => `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
 const words = text => text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
@@ -54,6 +56,7 @@ export async function processPrompt(previous, prompt, source, persist, generate,
     if (conflictReview.rememberAuthority && !canRememberAuthority(reviewedTurn, reviewedTurn.candidates.find(fact => fact.id === conflictReview.factId))) throw new Error('Choose a recorded source within one claim scope to remember its authority.');
   }
   const author = DEMO_MEMBERS[source];
+  const authorityRequest = !conflictReview && memoryReview ? authorityReviewRequest(previous, prompt, chatId, attachments) : null;
   const speaker = sourceLabel({ source, author });
   state.documents ||= [];
   const trace = [];
@@ -134,7 +137,10 @@ export async function processPrompt(previous, prompt, source, persist, generate,
         await write();
         emit('saved', 'Message save confirmed', 'The backend acknowledged this message.');
       }
-      if (lookup) {
+      if (authorityRequest) {
+        analysis = { status: 'authority-request', claims: [], relations: [], relevantFactIds: authorityRequest.candidates.map(f => f.id) };
+        emit('recall', 'Reopen the recorded authority question', 'Retain the ownership statement as proposed context. A choice and optional scoped lesson still require an explicit answer.');
+      } else if (lookup) {
         analysis = { status: 'saved-answer', claims: [], relations: [], relevantFactIds: lookup.candidates.map(f => f.id) };
         emit('recall', 'Read the saved human answer', 'An exact lookup uses the recorded answer without another model call.');
       } else {
@@ -149,7 +155,7 @@ export async function processPrompt(previous, prompt, source, persist, generate,
         incoming = materializeClaims(analysis, { turnId, source, author, documents: newDocuments });
       }
     }
-    incoming = incoming.map(fact => ({ ...fact, ...(fact.source === source && author ? { author } : {}) }));
+    incoming = incoming.map(fact => ({ ...fact, ...(fact.source === source && author && !fact.provenance?.reportedSource ? { author } : {}) }));
     const before = state.facts.length;
     state.facts.push(...incoming);
     if (!incoming.length && !attachments.length && !/[?]|^\s*(what|when|why|how|summari[sz]e|list|show|tell|can|could|write|draft|create|review|explain|translate)\b/i.test(prompt)) state.notes.push({ id: id('note'), text: prompt, source });
@@ -168,7 +174,7 @@ export async function processPrompt(previous, prompt, source, persist, generate,
     subject = subjects.find(value => new Set(state.facts.filter(fact => fact.subject === value).map(fact => fact.value.toLowerCase())).size > 1) || subjects[0];
     candidates = subject ? state.facts.filter(fact => fact.subject === subject) : [];
     if (memoryReview) {
-      evidenceGroups = memoryEvidence(state, incoming, analysis);
+      evidenceGroups = authorityRequest ? [{ subject: authorityRequest.subject, candidates: authorityRequest.candidates, conflict: true, relations: [] }] : memoryEvidence(state, incoming, analysis);
       const first = evidenceGroups[0];
       subject = first?.subject; candidates = first?.candidates || [];
     }
@@ -176,10 +182,10 @@ export async function processPrompt(previous, prompt, source, persist, generate,
     conflict = memoryReview ? Boolean(evidenceGroups[0]?.conflict) : new Set(candidates.map(fact => fact.value.toLowerCase())).size > 1;
     emit('compare', conflict ? 'A conflict is present' : candidates.length ? 'Check the evidence' : 'No supported answer in memory', candidates.length ? candidates.map(fact => `${fact.source}: ${fact.value}`).join(' · ') : 'A connected model is needed to interpret this request beyond local project facts.');
     const inScope = candidates.length && candidates.every(fact => fact.scope === 'launch readiness');
-    const previousReview = lookup?.review || (conflict && matchingConflictReview(state, candidates));
+    const previousReview = !authorityRequest && (lookup?.review || (conflict && matchingConflictReview(state, candidates)));
     savedReview = previousReview || null;
     const previousDecision = previous.turns.flatMap(turn => [turn, ...(turn.conflicts || [])]).reverse().find(turn => turn.subject === subject && turn.selected && (turn.correction || turn.reviewedConflictId || turn.applied));
-    requiresConfirmation = Boolean(conflict && previousDecision && (explicitRevision(prompt) || evidenceGroups[0]?.revision)
+    requiresConfirmation = Boolean(authorityRequest || conflict && previousDecision && (explicitRevision(prompt) || evidenceGroups[0]?.revision)
       && incoming.some(fact => fact.subject === subject && claimValue(fact) !== claimValue(previousDecision.selected)));
     if (previousReview) {
       selected = candidates.find(fact => fact.id === previousReview.selectedFactId) || null;
@@ -242,22 +248,26 @@ export async function processPrompt(previous, prompt, source, persist, generate,
     recordModel(requestEvent, modelResult);
   }
   if (memoryReview && !conflictReview) {
-    const summary = (conflict || savedReview) ? decisionSummary({ subject, candidates, selected, applied, policy: state.policy, requiresConfirmation, savedReview, engineResolution }) : '';
+    const summary = authorityRequest ? `Choose the recorded claim to use for ${subject} below. I added your ownership statement as context. Submit an answer to save a decision; select Remember authority only if you want a reusable lesson. No choice or policy change has been saved.` : (conflict || savedReview) ? decisionSummary({ subject, candidates, selected, applied, policy: state.policy, requiresConfirmation, savedReview, engineResolution }) : '';
     // The reviewer runs before resolution. Its free prose cannot overrule the
     // engine or a human answer; memory findings always come from these records.
     const comments = (modelResult?.reviewNotes || []).map(note => note.comment).join(' ');
     const task = reviewTask(prompt, attachments);
     const transformed = task.sourceTask && modelResult?.answer?.trim();
     const prose = lookup ? '' : task.sourceTask ? (transformed ? `**${task.label}:**\n\n${transformed}` : 'The requested text could not be produced. Please try again.')
-      : (conflict || savedReview || task.kind === 'review') ? comments : modelResult?.answer;
+      : (conflict || savedReview || task.kind === 'review' || ['partial', 'unavailable'].includes(analysis.status)) ? comments : modelResult?.answer;
     const factual = !summary && candidates.length && selected && !attachments.length ? `Recorded ${subject}: **${selected.value}** (${sourceLabel(selected)}).` : '';
     answer = (task.sourceTask ? [prose, summary] : [summary || factual, prose]).filter(Boolean).join('\n\n')
       || (incoming.length ? 'I saved the source-backed project claims.' : analysis.status === 'unavailable' ? 'Your original message and documents are retained.' : attachments.length ? 'I reviewed the document; no supported memory conflict was detected in this check.' : 'No saved answer is available.');
-    if (analysis.status === 'unavailable' || analysis.status === 'partial') answer += `\n\n${analysis.coverage?.omitted.length ? 'Memory checking was incomplete: some possible claims were not validated.' : 'Memory checking was unavailable for this reply.'} ${incoming.length ? 'Only the validated claims were saved.' : 'No new facts were saved.'} Please retry the memory check.`;
+    if (analysis.status === 'unavailable' || analysis.status === 'partial') {
+      const omitted = analysis.coverage?.omitted || [];
+      const excerpts = omitted.slice(0, 3).map(item => `> ${item.quote.replaceAll('\n', ' ')}`).join('\n\n');
+      answer += `\n\n${omitted.length || analysis.status === 'partial' ? 'Memory checking was incomplete: some possible claims were not validated.' : 'Memory checking was unavailable for this reply.'} ${incoming.length ? 'Only the validated claims were saved.' : 'No new facts were saved.'}${excerpts ? `\n\nNot validated:\n\n${excerpts}\n\nPlease clarify these claims with an explicit source, subject, and value, then retry the memory check.` : ' Please retry the memory check.'}`;
+    }
     if (conflictRecords.length) answer += '\n\n' + conflictRecords.slice(1).map(group => decisionSummary({ ...group, savedReview: matchingConflictReview(state, group.candidates) })).join('\n\n');
   }
   emit('resolve', selected ? `Selected ${selected.value}` : reviewedTurn ? 'Left unresolved' : correction ? 'Lesson recorded' : conflict ? 'Human input needed' : 'Answer prepared', answer);
-  const turn = { id: turnId, ...(chatId ? { chatId } : {}), prompt, source, author, attachments, answer, subject, incoming, candidates, selected, applied, conflict, conflictQuestion, requiresConfirmation, correction, ...(reviewedTurn ? { reviewedConflictId: reviewedTurn.id } : {}), policy: state.policy, lesson: state.lessons?.[applied] || state.lesson, ...(memoryReview ? { memoryAnalysis: analysis, evidenceGroups, ...(conflictRecords.length ? { conflicts: conflictRecords } : {}) } : {}), factCount: state.facts.length, engineResolution, retrievalReady, serviceMode: services?.storage || 'browser', model: modelResult?.model || (services ? 'Python engine' : 'Local rules'), provider: modelResult?.provider || 'local', status: 'completed', trace: [] };
+  const turn = { id: turnId, ...(chatId ? { chatId } : {}), prompt, source, author, attachments, answer, subject, incoming, candidates, selected, applied, conflict, conflictQuestion, requiresConfirmation, correction, ...(authorityRequest ? {authorityRequest: {conflictTurnId:authorityRequest.conflictTurnId, reason:authorityRequest.reason}} : {}), ...(reviewedTurn ? { reviewedConflictId: reviewedTurn.id } : {}), policy: state.policy, lesson: state.lessons?.[applied] || state.lesson, ...(memoryReview ? { memoryAnalysis: analysis, evidenceGroups, ...(conflictRecords.length ? { conflicts: conflictRecords } : {}) } : {}), factCount: state.facts.length, engineResolution, retrievalReady, serviceMode: services?.storage || 'browser', model: modelResult?.model || (services ? 'Python engine' : 'Local rules'), provider: modelResult?.provider || 'local', status: 'completed', trace: [] };
   const savedEntity = isDecisionTurn(turn) ? 'decision' : 'response';
   emit('commit', savedEntity === 'decision' ? 'Save the decision and its evidence' : 'Save the conversation response', `Append the answer, supporting IDs, applied precedent, and policy v${state.policy}.`);
   const placeholder = state.turns.findIndex(item => item.id === turnId);

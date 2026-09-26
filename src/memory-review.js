@@ -34,12 +34,14 @@ export function savedAnswerLookup(state, prompt, attachments = []) {
 export function materializeClaims(analysis, { turnId, source, author, documents = [], now = new Date().toISOString() }) {
   return (analysis.claims || []).map((claim, index) => {
     const document = claim.sourceRef.startsWith('attachment:') ? documents[Number(claim.sourceRef.split(':')[1])] : null;
-    return { id: `${turnId}-fact-${index + 1}`, source, ...(author ? { author } : {}),
+    return { id: `${turnId}-fact-${index + 1}`, source: claim.source || source,
+      ...(claim.reportedSource ? { submittedBy: { source, ...(author ? {author} : {}) } } : author ? { author } : {}),
       subject: claim.subject, attribute: claim.attribute, scope: claim.scope, value: claim.value,
       text: claim.quote, createdAt: now, sourceDate: now.slice(0, 10), ...(claim.dateYear ? { dateYear: claim.dateYear } : {}),
       ...(claim.validFrom ? { validFrom: claim.validFrom } : {}), ...(claim.validTo ? { validTo: claim.validTo } : {}),
       ...(document ? { document: document.name, documentId: document.id } : {}),
-      provenance: { method: 'model-extracted', sourceRef: claim.sourceRef, quote: claim.quote, turnId, claimRef: claim.ref },
+      provenance: { method: 'model-extracted', sourceRef: claim.sourceRef, quote: claim.quote, turnId, claimRef: claim.ref,
+        ...(claim.reportedSource ? {reportedSource:claim.reportedSource} : {}), ...(claim.contextQuote ? {contextQuote:claim.contextQuote} : {}) },
     };
   });
 }

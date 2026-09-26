@@ -211,3 +211,97 @@ measurements or latency guarantees. QA pacing did not eliminate every upstream
 failure. A quota-safe, narrated 60-second presentation has not been established
 by this run; the successful checks should not be described as a failure-free
 unpaced rehearsal.
+
+
+## Exact three-prompt compatibility check — September 26
+
+Tested the user's pasted command sequence through the real local model and
+Atlas/Voyage bridge in isolated workspace
+`workspace-qa-exact-2a272f3f-c399-4d64-9461-af011ebdb918`.
+This exercised connected orchestration directly, not browser interaction; the
+normal UI offers a conflict question after the first response.
+
+| Prompt | Observed result |
+| --- | --- |
+| Marketing says the launch is Friday. Engineering says the launch is Monday. | Both accepted claims inherit Maya / Marketing from the composer. The engine sees equal-authority Friday and Monday claims and abstains; it does not select Friday. |
+| Engineering owns launch readiness for this project. | Saved as an owner fact, not a human correction. No precedent; policy remains v1. |
+| Marketing says the next release is Wednesday. Engineering says Thursday. | Only Wednesday is accepted. The shorthand Thursday claim is rejected; the undated weekday does not compare with the seeded calendar-specific Engineering evidence. No conflict or applied precedent is recorded. |
+
+A fresh backend load retained policy v1, three turns, and zero lessons.
+No service failures occurred in this sequence. The phrase-triggered correction
+branch is limited to the older no-services path; the connected application uses
+an explicit linked conflict answer and authority opt-in. Source attribution in
+validated extraction comes from the composer/document contributor, not reported
+speaker names inside prose. These are compatibility gaps relative to the pasted
+guide, not evidence that its exact three commands currently work.
+
+A separate real-service check used workspace
+`workspace-qa-explicit-322f6915-53e4-42a4-974c-8b729395cb00` and the currently
+supported flow:
+
+1. Maya submits “The launch is Friday, October 2.” The stored Engineering
+   readiness update provides the competing Monday evidence. Policy v1 selects
+   Marketing / Friday provisionally (6.55 seconds).
+2. Submit the linked conflict answer choosing the stored Engineering fact,
+   `rememberAuthority: true`, and reason “Engineering owns launch readiness for
+   this project.” This is the same payload as choosing Engineering, checking
+   Remember authority, and submitting the question card. The backend selects
+   Monday, stores precedent `prec-30dd97b1cc86`, advances policy to v2, and confirms
+   retrieval readiness (2.54 seconds).
+3. Maya submits “The next release is Wednesday, October 14.” Atlas Vector Search
+   returns that exact precedent with score 0.7469745874404907. The engine selects
+   Engineering / Thursday, records `applied_precedent_id` matching the new lesson,
+   and requires no second human answer (8.18 seconds).
+
+A fresh backend load confirms policy v2 and that lesson. The relevant Voyage,
+search, readiness, and engine receipts succeeded. These times describe individual
+operations in this check, not a latency guarantee or a timed browser rehearsal.
+The UI's explanation surface is Replay internals → Resolution engine; there is
+no separate button literally named “Why this decision?”. This audit changed no
+runtime behavior and does not reinstate the older two-speaker prompt as the
+canonical natural-memo demonstration.
+
+
+## Reported-source continuation — implemented and checked
+
+The stopped follow-up had not changed source attribution, omission reporting, or
+authority-statement handling. The existing uncommitted replay refinements were
+preserved. This continuation implemented all three agreed changes and updated
+the canonical docs under decision D49.
+
+- Explicit reporting sentences keep the claimant department and a separate
+  `submittedBy` identity. No fictional named claimant is inferred. Backend save
+  validation checks the reporting quote and original submitter.
+- Adjacent date shorthand keeps its exact `contextQuote`; missing or rejected
+  assertions are visible with a request for clarification.
+- An unambiguous ownership statement reopens recorded evidence in the active
+  chat with its wording in Add context. Neither a claim nor the authority
+  checkbox is selected automatically. An explicit answer is still required.
+  The original review remains in the completed linked replay.
+
+Connected acceptance (`CHRONICLE_QA_PACE_MS=25000 node scripts/check_reported_sources.mjs`):
+
+| Action | Observed result | Request duration |
+| --- | --- | --- |
+| Marketing says launch Friday; Engineering says launch Monday | Two distinct reported sources; Friday provisionally selected under policy v1 | 6814 ms |
+| Engineering owns launch readiness for this project | Confirmation requested, context retained, no model call or policy change | 903 ms |
+| Explicit Monday answer with Remember authority checked | Monday saved, policy v2, indexed precedent ready | 1919 ms |
+| Marketing says next release Wednesday; Engineering says Thursday | Both claims validated; Thursday selected using that same precedent; no second question | 7863 ms |
+
+Workspace: `workspace-qa-reported-b3a5ee68-c208-4d4d-8172-f8ec77577885`. Applied precedent: `prec-a6dc3fc37935`.
+Atlas reload preserved the original Friday result, policy v2 and the precedent.
+One earlier unpaced run recorded a failed Voyage query and used policy v2 without
+a precedent citation; that run did not pass the reuse assertion. QA pacing was
+outside measured request durations and was not added to application behavior.
+These timings are observations, not guarantees.
+
+Validation: 117 JavaScript tests, 58 Python tests, production build, and diff
+whitespace checks passed. The browser showed the original reporting passages,
+separate submitter labels, prefilled context, no preselected claim, and an
+unchecked Remember authority option.
+The final browser save also passed: selecting Monday with Remember authority
+unchecked saved Maya's answer, kept policy v1 with no lesson, restored the
+composer, and exposed exactly one Replay internals action. A development hot
+reload interrupted an earlier QA save while the UI code was being edited; the
+final interaction was rerun against the stable build in a fresh isolated QA
+workspace. The user's selected workspace was not changed.

@@ -1,9 +1,9 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { sourceLabel } from './memory.js';
-import { activeOperation, replayStatus, segmentStyle, directorPose, recordedModelTrace, serviceGeometry, serviceEvidence, STACK_OFFSET } from './replay-model.js';
+import { activeOperation, replayStatus, segmentStyle, directorPose, recordedModelTrace, serviceGeometry, serviceEvidence, replayOutput, STACK_OFFSET } from './replay-model.js';
 import './replay.css';
 import { advanceCamera } from './replay-camera.js';
-import { createPlayback, seekPlayback, advancePlayback, packetStyle } from './replay-playback.js';
+import { createPlayback, seekPlayback, advancePlayback, packetStyle, playbackTiming, REPLAY_RETURN_MS } from './replay-playback.js';
 import { cycleServiceRecording } from './replay-cycle.js';
 
 function useCameraPose(node, expanded, reducedMotion, returning) {
@@ -36,8 +36,8 @@ const services = {
   atlas: { title: 'MongoDB Atlas', description: 'Stores the project workspace: original documents, facts, conversations, engine resolutions, human decisions, policy versions and trace history. Precedent vectors use Danny’s precedents collection.', input: 'Project-scoped records and source IDs', output: 'Acknowledged writes and stored evidence', owner: 'Sahil · data platform' },
   voyage: { title: 'Voyage AI', description: 'Danny’s retrieval module embeds conflict queries and correction documents. The receipt records the actual model, vector size, input type and measured duration.', input: 'Conflict query or precedent text', output: 'Embedding vector; no authority decision', owner: 'Danny · retrieval, hosted by backend' },
   vector: { title: 'Atlas Vector Search', description: 'Danny’s search filters by project and returns ranked precedent candidates. Only committed precedents can influence the engine. Candidate similarity does not establish applicability.', input: 'Query vector and project filter', output: 'Candidate IDs, scores and scope', owner: 'Danny · retrieval, hosted by backend' },
-  engine: { title: 'Resolution engine', description: 'Elmir’s Python engine evaluates source authority, recency and candidate scope. It returns a selected fact or unresolved result, applied precedent ID, policy version and explanation. The browser still extracts limited structured claims from the memo.', input: 'Stored facts, policy and retrieved candidates', output: 'Resolution and explanation; proposed correction policy', owner: 'Elmir · resolution' },
-  model: { title: 'Response model', description: 'The selected provider reviews the full memo with project evidence and the engine result. Replay displays its recorded request and response without making another call.', input: 'Prompt, full memo, evidence and policy', output: 'Completed response', owner: 'Existing local provider bridge' },
+  engine: { title: 'Resolution engine', description: 'Elmir’s Python engine evaluates validated stored claims, source authority, recency and candidate scope. It returns a selected fact or unresolved result, applied precedent ID, policy version and explanation.', input: 'Stored facts, policy and retrieved candidates', output: 'Resolution and explanation; proposed correction policy', owner: 'Elmir · resolution' },
+  model: { title: 'Response model', description: 'The selected provider reviews the supplied document and recorded project context. The connected reviewer proposes source-backed claims; validation and Python resolution follow. Older recordings retain their original operation order. Replay makes no new model call.', input: 'Prompt, full memo, evidence and policy', output: 'Provisional review and proposed claims', owner: 'Existing local provider bridge' },
 };
 
 
@@ -119,12 +119,15 @@ export default function ReplayScene({ turn, step, steps, cursor, playing, playMo
   const inspectorRef = useRef(null);
   const lastInspected = useRef(null);
   const [packetPhase, setPacketPhase] = useState({ id: null, reached: false });
-  const evidenceCursor = step ? packetPhase.id === step.id && packetPhase.reached ? step.traceIndex : step.traceStartIndex - 1 : -1;
+  const arrived = Boolean(step && packetPhase.id === step.id && packetPhase.reached);
+  const evidenceCursor = step ? arrived ? step.traceIndex : step.traceStartIndex - 1 : -1;
   const event = step?.event;
   const active = step || activeOperation(event);
   const status = turn ? replayStatus(turn, evidenceCursor) : {};
   const pose = useCameraPose(following ? step?.cameraNode || active.node : 'terminal', expanded, reducedMotion, returning);
   const focused = following && active.node !== 'terminal' ? active.node : null;
+  const timing = playbackTiming(steps);
+  const station = services[active.node];
   const facts = turn?.candidates || [];
   const engineReached = turn?.trace.slice(0, evidenceCursor + 1).some(event => event.service === 'engine');
   const engineStatus = engineReached ? status : {};
@@ -173,8 +176,8 @@ export default function ReplayScene({ turn, step, steps, cursor, playing, playMo
       const parent = viewport.current.getBoundingClientRect();
       setExitRect({ left: rect.left - parent.left, top: rect.top - parent.top, width: rect.width, height: rect.height });
       setExitPhase('zoom');
-      zoomTimer = setTimeout(onReturnComplete, 700);
-    }, 1250);
+      zoomTimer = setTimeout(onReturnComplete, REPLAY_RETURN_MS.zoom);
+    }, REPLAY_RETURN_MS.flatten);
     return () => { clearTimeout(flattenTimer); clearTimeout(zoomTimer); };
   }, [returning, reducedMotion, onReturnComplete]);
   function closeInspector() {
@@ -199,10 +202,11 @@ export default function ReplayScene({ turn, step, steps, cursor, playing, playMo
   const finishDrag = () => { drag.current = null; moved.current = false; };
   return <div ref={viewport} className={`replay-viewport ${expanded ? 'revealed' : 'working-view'} ${!reducedMotion ? 'has-depth' : 'flat-view'} ${active.node === 'terminal' ? 'terminal-active' : ''} ${focused ? 'directed-focus' : ''} ${exitPhase ? `return-${exitPhase}` : ''}`} style={exitRect ? { '--exit-left': `${exitRect.left}px`, '--exit-top': `${exitRect.top}px`, '--exit-width': `${exitRect.width}px`, '--exit-height': `${exitRect.height}px` } : undefined} data-focus={focused || 'overview'} onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={finishDrag} onPointerCancel={finishDrag} onLostPointerCapture={finishDrag}>
     {expanded && <div className="scene-toolbar">
-      <div><span className="scene-eyebrow">LIVING LEDGER / {turn?.correction ? 'HUMAN CORRECTION' : 'REQUEST REVIEW'}</span><p>{browserRecording ? 'Browser-only recording · send a new conflict to record connected services' : 'Recorded run · automatic camera'}</p></div>
+      <div className="scene-heading"><span className="scene-eyebrow">{turn?.correction ? 'HUMAN CORRECTION' : 'LIVING LEDGER'} · RECORDED REPLAY</span><h2>{station?.title || 'Chronicle'}</h2><p>{step?.operation}</p><small>{browserRecording ? 'Older browser-only recording' : `About ${Math.round(timing.durationMs / 1000)} seconds · pause to inspect`}</small></div>
+      <div className="service-progress" aria-label="Replay service status">{Object.entries(services).map(([id, service]) => <span key={id} title={evidence[id].tag} className={`${active.node === id ? 'current' : ''} ${evidence[id].events.length ? 'visited' : ''}`} aria-current={active.node === id ? 'step' : undefined}><i/>{service.title}</span>)}</div>
     </div>}
     <div className="scene-fit" style={{ '--scene-scale': scale }}>
-      <div className="scene-world" style={{ '--pan-x': `${view.x * 22}px`, '--pan-y': `${view.y * 12}px`, '--rotate-x': `${pose.rx - view.y * 4}deg`, '--rotate-y': `${pose.ry + view.x * 6}deg`, '--director-x': `${pose.x}px`, '--director-y': `${pose.y}px`, '--director-zoom': pose.zoom }}>
+      <div className="scene-world" style={{ '--pan-x': `${view.x * 22}px`, '--pan-y': `${view.y * 12}px`, '--rotate-x': `${pose.rx - view.y * 4}deg`, '--rotate-y': `${pose.ry + view.x * 4.5}deg`, '--director-x': `${pose.x}px`, '--director-y': `${pose.y}px`, '--director-zoom': pose.zoom }}>
         {expanded && <>
           <div className="scene-plane conversation-plane" aria-hidden="true"><span>01 / CONVERSATION</span></div>
           <div className="scene-plane execution-plane" aria-hidden="true"><span>02 / REASON + RESPOND</span></div>
@@ -213,7 +217,7 @@ export default function ReplayScene({ turn, step, steps, cursor, playing, playMo
           <ServiceCard id="atlas" title={browserRecording ? "Browser memory" : undefined} active={active.node === 'atlas'} selected={inspected === 'atlas'} onSelect={inspect} className={turn.serviceMode === 'server-memory' ? 'memory-storage' : ''}>
             <span className="service-tag">{browserRecording ? 'RECORDED LOCAL STORAGE' : evidence.atlas.tag}</span>
             <span className="database-glyph" aria-hidden="true"><i/><i/><i/></span>
-            <strong className="service-result">{event?.entity === 'document' ? event.stage === 'write' ? 'Saving original memo' : 'Original memo retained' : event?.stage === 'write' ? turn.correction ? 'Saving the correction' : 'Saving incoming claims' : event?.stage === 'commit' ? 'Saving decision + evidence' : status.committed ? turn.serviceMode === 'atlas' ? 'Decision saved in Atlas' : 'Decision saved' : status.saved ? turn.correction ? 'Human answer saved' : 'Write confirmed' : 'Project memory'}</strong>
+            <strong className="service-result">{event?.entity === 'document' ? arrived && step.events.some(item => item.stage === 'saved') ? 'Original memo retained' : 'Saving original memo' : event?.stage === 'write' && !arrived ? turn.correction ? 'Saving the correction' : 'Saving incoming claims' : event?.stage === 'commit' && !arrived ? 'Saving decision + evidence' : status.committed ? turn.serviceMode === 'atlas' ? 'Decision saved in Atlas' : 'Decision saved' : status.saved ? turn.correction ? 'Human answer saved' : 'Write confirmed' : 'Project memory'}</strong>
             <span className="collection-list"><span>facts</span><span>precedents</span><span>policy versions</span></span>
             <span className="service-description">{turn.factCount - (status.saved ? 0 : turn.incoming.length)} retained facts · original sources preserved</span>
             <span className="service-bottom">{status.committed ? 'Answer + supporting IDs + trace retained' : 'Documents → claims → decisions'}</span>
@@ -251,7 +255,7 @@ export default function ReplayScene({ turn, step, steps, cursor, playing, playMo
     {expanded && step && <div className={`process-caption ${step.kind === 'illustration' ? 'illustrated' : ''}`} aria-label="Current data transformation">
       <div><span>INPUT</span><strong>{step.input}</strong></div><i aria-hidden="true">→</i>
       <div className="caption-operation"><span>{step.kind === 'illustration' ? 'PLANNED PROCESS' : 'OPERATION'}</span><strong>{step.operation}</strong></div><i aria-hidden="true">→</i>
-      <div><span>OUTPUT</span><strong>{step.output}</strong></div>
+      <div className={arrived ? 'caption-result arrived' : 'caption-result'}><span>{arrived ? 'OUTPUT' : 'IN TRANSIT'}</span><strong>{arrived ? replayOutput(step) : 'Following the recorded transfer…'}</strong></div>
     </div>}
     {expanded && <div className="scene-legend"><span><i/>Recorded operation</span><span>Connections follow recorded station visits</span><span className="pan-hint">{following ? 'Camera follows each step · pause anytime for narration' : 'Exploration paused · press Play to resume the guided flow'}</span></div>}
     {selected && expanded && <aside className="service-inspector" aria-label={`${selected.title} details`} ref={inspectorRef} tabIndex={-1} onKeyDown={event => { if (event.key === 'Escape') closeInspector(); }}>
