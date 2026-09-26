@@ -54,28 +54,64 @@ export function memoryEvidence(state, incoming, analysis) {
   const relevant = new Set(analysis.relevantFactIds || []);
   for (const relation of relations) relevant.add(relation.factId);
   const relevantKeys = new Set([...incoming, ...state.facts.filter(f => relevant.has(f.id))].map(key));
-  const groups = [];
+  // These are persisted, previously validated semantic relationships. A lookup
+  // may reuse them, but an old revision is never treated as a fresh revision.
+  const recordedRelations = (state.turns || []).flatMap(turn =>
+    (turn.evidenceGroups || []).flatMap(group => group.relations || []));
+  const groups = [], seen = new Set();
   for (const groupKey of relevantKeys) {
-    let candidates = state.facts.filter(f => key(f) === groupKey);
-    const current = candidates.filter(f => incomingIds.has(f.id));
-    // A claim for another time period is retained but is not a contradiction.
-    if (current.length) candidates = candidates.filter(f => current.some(n => n.id === f.id || comparableMemoryFacts(n, f)));
-    const groupRelations = relations.filter(r => candidates.some(f => f.id === r.newFactId) && candidates.some(f => f.id === r.factId));
-    const contradicted = groupRelations.some(r => ['contradiction', 'revision'].includes(r.type));
-    const normalized = candidates.map(canonicalFact);
-    const comparable = normalized.every(f => ['date', 'budget', 'owner'].includes(f.attribute));
-    const conflict = contradicted || (comparable && new Set(candidates.map(value)).size > 1
-      && candidates.some(a => candidates.some(b => a.id !== b.id && comparableMemoryFacts(a, b) && value(a) !== value(b))));
-    if (candidates.length) groups.push({ subject: candidates[0].subject, candidates, conflict,
-      revision: groupRelations.some(r => r.type === 'revision'), relations: groupRelations });
+    const matching = state.facts.filter(f => key(f) === groupKey);
+    const current = matching.filter(f => incomingIds.has(f.id));
+    const anchors = current.length ? current : matching.filter(f => relevant.has(f.id));
+    for (const anchor of anchors) {
+      const compatible = matching.filter(f => f.id === anchor.id || comparableMemoryFacts(anchor, f));
+      const partitions = [[anchor]];
+      // Overlap is not transitive: a year-long claim may overlap September and
+      // October while those months cannot conflict with each other. Keep each
+      // partition pairwise comparable, allowing the broad claim in both.
+      for (const fact of compatible) {
+        if (fact.id === anchor.id) continue;
+        const fitting = partitions.filter(partition => partition.every(member =>
+          member.id === fact.id || comparableMemoryFacts(member, fact)));
+        if (fitting.length) for (const partition of fitting) partition.push(fact);
+        else partitions.push([anchor, fact]);
+      }
+      for (const partition of partitions) {
+        const ids = new Set(partition.map(f => f.id));
+        const signature = [...ids].sort().join('|');
+        if (seen.has(signature)) continue;
+        seen.add(signature);
+        // Restore persisted order so equivalent updates and source ordering do
+        // not change merely because the current claim anchored the partition.
+        const candidates = matching.filter(f => ids.has(f.id));
+        const currentRelations = relations.filter(r => ids.has(r.newFactId) && ids.has(r.factId));
+        const groupRelations = [...currentRelations];
+        for (const relation of recordedRelations) {
+          if (ids.has(relation.newFactId) && ids.has(relation.factId)
+            && !groupRelations.some(r => r.newFactId === relation.newFactId && r.factId === relation.factId && r.type === relation.type)) groupRelations.push(relation);
+        }
+        const contradicted = groupRelations.some(r => ['contradiction', 'revision'].includes(r.type));
+        const normalized = candidates.map(canonicalFact);
+        const deterministic = normalized.every(f => ['date', 'budget', 'owner'].includes(f.attribute));
+        const conflict = contradicted || (deterministic && new Set(candidates.map(value)).size > 1);
+        groups.push({ subject: candidates[0].subject, candidates, conflict,
+          revision: currentRelations.some(r => r.type === 'revision'), relations: groupRelations });
+      }
+    }
   }
-  return groups.sort((a, b) => Number(b.conflict) - Number(a.conflict));
+  // An anchor can produce a smaller equivalent subset before another anchor
+  // fills the entire compatible group. Keep only the complete evidence set.
+  return groups.filter(group => !groups.some(other => other !== group
+    && other.candidates.length > group.candidates.length
+    && group.candidates.every(f => other.candidates.some(candidate => candidate.id === f.id))))
+    .sort((a, b) => Number(b.conflict) - Number(a.conflict));
 }
 
 export function decisionSummary({ subject, candidates, selected, applied, policy, requiresConfirmation, savedReview, engineResolution }) {
+  const evidence = candidates.map(fact => `**${fact.value}** from ${fact.author ? `${fact.author} [${fact.source}]` : fact.source}${fact.document ? ` (${fact.document}${fact.sourceDate ? `, ${fact.sourceDate}` : ''})` : ''}`).join('; ');
   if (requiresConfirmation) return `**Memory decision:** This revises an earlier saved answer about ${subject}. Confirm the new source of truth below; the earlier decision is retained.`;
   if (savedReview) return selected ? `**Saved answer:** ${subject} — **${selected.value}** (${selected.author ? `${selected.author} · ` : ''}${selected.source}).` : `**Saved answer:** ${subject} remains unresolved.`;
   if (applied) return `**Memory decision:** ${subject} — **${selected?.value}** (${selected?.source}), using the saved scoped lesson under policy v${policy}.`;
-  if (candidates.length > 1) return `**Memory decision:** The ${subject} claims disagree. ${selected ? `Policy v${policy} provisionally favors **${selected.value}** (${selected.source}). ` : ''}Confirm a claim below or leave it unresolved.`;
+  if (candidates.length > 1) return `The ${subject} claims disagree: ${evidence}.\n\n**Memory decision:** ${selected ? `Policy v${policy} provisionally favors **${selected.value}** (${selected.source}). ` : ''}Confirm a claim below or leave it unresolved.`;
   return engineResolution?.explanation || '';
 }

@@ -1,4 +1,5 @@
 import { memoryAnalysisContext } from './memory-analysis.mjs';
+import { reviewTask } from './review-task.mjs';
 // The context and its receipt are built together, before transport credentials
 // enter the request. Never include headers, API keys, endpoint URLs or CLI logs.
 export function prepareModelContext({ prompt, source, author, state, draft, selected, conflict, attachments = [], reviewContext = null, engineResolution = null, decisionContext = null, memoryReview = false }) {
@@ -7,9 +8,9 @@ export function prepareModelContext({ prompt, source, author, state, draft, sele
   const analysisContext = memoryReview ? memoryAnalysisContext({ prompt, source, author, state, attachments }) : null;
   // The full source text appears once. Avoid sending the same memo as both
   // attachments and analysis sources, or the entire saved replay history.
-  const sent = memoryReview ? { task: 'memory-review', memoryInput: analysisContext,
+  const sent = memoryReview ? { task: 'memory-review', currentRequest: { sourceRef: 'prompt', ...reviewTask(prompt, attachments) }, memoryInput: analysisContext,
     conversation: context.conversation.slice(-4), policyVersion: state.policy,
-    savedDecisions: state.turns.filter(turn => turn.reviewedConflictId || turn.applied).slice(-8)
+    savedDecisions: state.turns.flatMap(turn => [turn, ...(turn.conflicts || [])]).filter(turn => turn.reviewedConflictId || turn.applied).slice(-8)
       .map(turn => ({ subject: turn.subject, selectedFactId: turn.selected?.id || null, appliedPrecedentId: turn.applied || null })) } : context;
   const content = JSON.stringify(sent);
   const receipt = {

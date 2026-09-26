@@ -105,3 +105,39 @@ test('value grounding respects whole words and calendar validity', () => {
     assert.equal(output.claims.length,0,quote);
   }
 });
+
+test('written dates reject impossible days and respect explicit and document leap years', () => {
+  for (const [value, valid] of [['February 31, 2027',false],['February 29, 2027',false],['February 29, 2028',true],['April 31',false],['April 30',true],['February 29',true],['2028-02-29',true]]) {
+    const quote = `The launch is ${value}.`;
+    const result = validateMemoryAnalysis(analysis([claim(quote,{subject:'launch',attribute:'date',scope:'launch readiness',value})]),context(quote));
+    assert.equal(result.claims.length,Number(valid),value);
+  }
+  for (const year of [2027,2028]) {
+    const quote = 'The launch is February 29.';
+    const result = validateMemoryAnalysis(analysis([claim(quote,{sourceRef:'attachment:0',subject:'launch',attribute:'date',scope:'launch readiness',value:'February 29'})]),context('Review this.',[],[{text:`Prepared: January 1, ${year}\n${quote}`} ]));
+    assert.equal(result.claims.length,Number(year===2028));
+  }
+  const quote='The launch is Friday, February 31, 2027.';
+  assert.equal(validateMemoryAnalysis(analysis([claim(quote,{subject:'launch',attribute:'date',scope:'launch readiness',value:'Friday'})]),context(quote)).claims.length,0);
+});
+
+test('empty or partial model analysis cannot silently pass over explicit assertions', () => {
+  const quote='The acquisition budget is $20,000.';
+  const ctx=context(`${quote} Check this against project memory.`,[{...fact,subject:'acquisition budget'}]);
+  assert.deepEqual(ctx.reviewTargets,[{sourceRef:'prompt',quote}]);
+  const empty=validateMemoryAnalysis(analysis([]),ctx);
+  assert.equal(empty.status,'unavailable'); assert.equal(empty.claims.length,0);
+  assert.deepEqual(empty.coverage.omitted,ctx.reviewTargets);
+  const complete=validateMemoryAnalysis(analysis([claim(quote,{subject:'acquisition budget',value:'$20,000'})]),ctx);
+  assert.equal(complete.status,'validated'); assert.equal(complete.coverage.omitted.length,0);
+  const partial=validateMemoryAnalysis(analysis([claim(quote,{subject:'acquisition budget',value:'$20,000'})]),context(`${quote} The migration is blocked.`));
+  assert.equal(partial.status,'partial'); assert.equal(partial.claims.length,1);
+  assert.equal(partial.coverage.omitted[0].quote,'The migration is blocked.');
+});
+
+test('omission checks do not turn greetings, questions, hypotheticals or headers into assertions', () => {
+  for (const prompt of ['Hello!', 'What is the budget?', 'If the budget is $20,000, we can proceed.', 'Imagine the budget is $20,000.', 'Prepared: February 31, 2027', 'Translate "the budget is $20,000" into French.', 'We also need a support owner for the first wave and a short explanation for teams who are halfway through the old setup flow.']) {
+    const result=validateMemoryAnalysis(analysis([]),context(prompt));
+    assert.equal(result.status,'validated',prompt); assert.equal(result.coverage.omitted.length,0,prompt);
+  }
+});

@@ -28,7 +28,7 @@ test('semantic chat makes one model call before the engine, saves evidence first
   assert.ok(fx.calls.indexOf('model')<fx.calls.indexOf('resolve'));
   assert.equal(fx.calls[fx.calls.indexOf('resolve')-1],'save');
   assert.equal(turn.selected.id,budget.id); assert.equal(turn.conflict,true);
-  assert.match(turn.answer,/Reviewed the supplied update/); assert.match(turn.answer,/\*\*Memory decision:\*\*/); assert.match(turn.answer,/20,000/);
+  assert.doesNotMatch(turn.answer,/Reviewed the supplied update/); assert.match(turn.answer,/\*\*Memory decision:\*\*/); assert.match(turn.answer,/20,000/);
   assert.equal(turn.timing.modelCalls,1);
 });
 
@@ -101,6 +101,47 @@ function answeredState(facts,selectedFactId) {
   return {...initial(facts),turns:[{id:'old-review',subject:facts[0].subject,candidates:facts,conflict:true,answer:'Please choose.',selected:facts[0],status:'completed'}, {id:'old-answer',subject:facts[0].subject,candidates:facts,selected:facts.find(f=>f.id===selectedFactId),correction:true,reviewedConflictId:'old-review',answer:'Saved.',status:'completed'}],conflictReviews:[{conflictTurnId:'old-review',resolutionTurnId:'old-answer',selectedFactId,source:'Marketing',author:'Maya'}]};
 }
 
+test('translations and summaries survive conflicting evidence without replacing the engine choice',async()=>{
+  const text='The budget is $15,000.';
+  for (const [prompt,answer,label] of [['Translate this memo into French.','Le budget est de 15 000 $.','Translation'],['Summarize this memo.','The memo proposes a $15,000 budget.','Summary']]) {
+    const fx=fixture(raw([claim(text,{sourceRef:'attachment:0'})],[{claimRef:'c1',factId:budget.id,type:'contradiction'}]));
+    const generate=async input=>({...await fx.generate(input),answer});
+    const {turn}=await processPrompt(initial(),prompt,'Marketing',()=>{},generate,[{name:'memo.md',text}],{memoryReview:true,services:fx.services});
+    assert.ok(turn.answer.includes(answer)); assert.match(turn.answer,new RegExp(`${label} of supplied text`));
+    assert.match(turn.answer,/Memory decision/); assert.match(turn.answer,/20,000/);
+    assert.equal(turn.selected.id,budget.id); assert.ok(turn.conflictQuestion);
+    assert.equal(fx.calls.filter(call=>call==='model').length,1);
+  }
+});
+
+test('a source transformation survives a previously saved answer for the same evidence',async()=>{
+  const other={...budget,id:'budget-marketing',source:'Marketing',value:'$15,000'};
+  const state=answeredState([budget,other],budget.id);
+  const fx=fixture(raw([],[],[budget.id,other.id]));
+  const generate=async input=>({...await fx.generate(input),answer:'Le budget est de 15 000 $.'});
+  const {turn}=await processPrompt(state,'Translate this memo into French.','Marketing',()=>{},generate,[{name:'memo.md',text:'The memo discusses a disputed amount.'}],{memoryReview:true,services:fx.services});
+  assert.match(turn.answer,/Le budget/); assert.match(turn.answer,/Saved answer/);
+  assert.equal(turn.selected.id,budget.id); assert.equal(turn.conflictQuestion,null);
+});
+
+test('omitted assertions remain original sources, never invented facts or successful memory checks',async()=>{
+  const fx=fixture(raw());
+  fx.generate=async input=>({answer:'',model:'fixture',memoryAnalysis:validateMemoryAnalysis(raw(),memoryAnalysisContext(input))});
+  const {turn,state}=await run(initial(),'The budget is $15,000. Check this against project memory.',fx);
+  assert.equal(state.facts.length,1); assert.equal(turn.memoryAnalysis.status,'unavailable');
+  assert.match(turn.answer,/Memory checking was incomplete/); assert.doesNotMatch(turn.answer,/No saved answer is available|no supported memory conflict/);
+  assert.ok(!fx.calls.includes('resolve')); assert.equal(state.turns.at(-1).prompt,turn.prompt);
+  assert.equal(turn.trace.find(event=>event.stage==='extract').status,'unavailable');
+});
+
+test('partial extraction saves only grounded facts and reports the remaining omission',async()=>{
+  const fx=fixture(raw([claim('The budget is $20,000.',{value:'$20,000'})]));
+  const {turn,state}=await run(initial(),'The budget is $20,000. The migration is blocked.',fx);
+  assert.equal(turn.memoryAnalysis.status,'partial'); assert.equal(state.facts.length,2);
+  assert.match(turn.answer,/Only the validated claims were saved/);
+  assert.equal(turn.incoming[0].subject,'budget');
+});
+
 test('an equivalent repeat preserves the saved answer without reopening historic disagreement',async()=>{
   const facts=[budget,{...budget,id:'budget-marketing',source:'Marketing',value:'$15,000'}];
   const prompt='The budget is $20k.';
@@ -163,4 +204,60 @@ test('multiple conflicts persist distinct engine decisions and queue answers bef
   const steps = buildCycleReplaySteps(cycle);
   const engineSteps = steps.filter(step => step.event.service === 'engine');
   assert.deepEqual(engineSteps.map(step => step.turn.subject), ['budget', 'migration']);
+});
+
+test('a period-specific read uses relevant evidence without resurrecting other periods',async()=>{
+  const september={...budget,validFrom:'2026-09-01',validTo:'2026-09-30'};
+  const septemberOther={...september,id:'september-marketing',value:'$15,000',source:'Marketing'};
+  const october={...budget,id:'october-budget',value:'$25,000',validFrom:'2026-10-01',validTo:'2026-10-31'};
+  const fx=fixture(raw([],[],[october.id]));
+  const {turn}=await run(initial([september,septemberOther,october]),'What is the budget in October?',fx);
+  assert.equal(turn.conflict,false); assert.ok(!fx.calls.includes('resolve'));
+  assert.deepEqual(turn.candidates.map(f=>f.id),[october.id]);
+});
+
+test('an explicit revision reopens a subject previously decided as a secondary group',async()=>{
+  const owner={id:'owner-engineering',subject:'migration owner',attribute:'owner',scope:'operations',value:'Alex',text:'The migration owner is Alex.',source:'Engineering'};
+  const other={...owner,id:'owner-marketing',value:'Maya',source:'Marketing'};
+  const state=initial([budget,owner,other]);
+  state.turns=[{id:'old-multi',subject:'budget',selected:budget,applied:'budget-lesson',answer:'Recorded both decisions.',status:'completed',conflicts:[{id:'old-multi:conflict:2',subject:'migration owner',candidates:[owner,other],selected:owner,applied:'owner-lesson',conflict:true}]}];
+  const prompt='Actually, the migration owner is Jordan.';
+  const fx=fixture(raw([claim(prompt,{subject:'migration owner',attribute:'owner',scope:'operations',value:'Jordan'})],[{claimRef:'c1',factId:owner.id,type:'revision'}]));
+  fx.services.resolve=async(id)=>({policy:7,lesson:null,resolution:{conflict_id:id,selected_fact_id:owner.id,applied_precedent_id:'owner-lesson',policy_version:7},trace:[]});
+  const {turn}=await run(state,prompt,fx);
+  assert.equal(turn.requiresConfirmation,true); assert.ok(turn.conflictQuestion);
+});
+
+test('multiple applicability periods remain separate resolution evidence groups',async()=>{
+  const {memoryEvidence}=await import('./memory-review.js');
+  const september={...budget,id:'september-old',validFrom:'2026-09-01',validTo:'2026-09-30'};
+  const october={...budget,id:'october-old',value:'$25,000',validFrom:'2026-10-01',validTo:'2026-10-31'};
+  const newSeptember={...september,id:'september-new',source:'Marketing',provenance:{claimRef:'c1'}};
+  const newOctober={...october,id:'october-new',source:'Marketing',value:'$15,000',provenance:{claimRef:'c2'}};
+  const groups=memoryEvidence(initial([september,october,newSeptember,newOctober]),[newSeptember,newOctober],raw());
+  assert.equal(groups.length,2); assert.equal(groups[0].conflict,true); assert.equal(groups[1].conflict,false);
+  assert.deepEqual(groups[0].candidates.map(f=>f.id),['october-old','october-new']);
+  assert.deepEqual(groups[1].candidates.map(f=>f.id),['september-old','september-new']);
+});
+
+test('a broad applicability claim cannot merge incompatible months through transitive overlap',async()=>{
+  const {memoryEvidence}=await import('./memory-review.js');
+  const september={...budget,id:'september-old',validFrom:'2026-09-01',validTo:'2026-09-30'};
+  const october={...budget,id:'october-old',value:'$25,000',validFrom:'2026-10-01',validTo:'2026-10-31'};
+  const broad={...budget,id:'year-budget',value:'$15,000',validFrom:'2026-01-01',validTo:'2026-12-31',provenance:{claimRef:'c1'}};
+  const groups=memoryEvidence(initial([september,october,broad]),[broad],raw());
+  assert.equal(groups.length,2);
+  assert.ok(groups.every(group=>group.candidates.length===2 && group.candidates.some(f=>f.id===broad.id)));
+  assert.ok(groups.every(group=>!(group.candidates.some(f=>f.id===september.id)&&group.candidates.some(f=>f.id===october.id))));
+});
+
+test('a relevant read preserves recorded semantic disagreements without replaying old revision intent',async()=>{
+  const {memoryEvidence}=await import('./memory-review.js');
+  const old={id:'status-old',subject:'migration',attribute:'status',scope:'operations',value:'complete',source:'Engineering'};
+  const newer={...old,id:'status-new',value:'blocked',source:'Marketing'};
+  const state=initial([old,newer]);
+  state.turns=[{evidenceGroups:[{relations:[{newFactId:newer.id,factId:old.id,type:'revision'}]}]}];
+  const groups=memoryEvidence(state,[],raw([],[],[newer.id]));
+  assert.equal(groups.length,1); assert.equal(groups[0].conflict,true); assert.equal(groups[0].revision,false);
+  assert.equal(groups[0].relations.length,1);
 });

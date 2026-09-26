@@ -107,7 +107,7 @@ function App() {
     } catch (error) { setConnectionError(error.message); } finally { setConnectionBusy(false); }
   }
   async function requestAnswer(context) {
-    const response = await fetch('/api/respond', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Chronicle-Request': '1' }, body: JSON.stringify({ ...context, state: { ...context.state, documents: [], conversations: undefined, turns: context.state.turns.filter(turn => turn.answer).slice(-8).map(turn => ({ id: turn.id, prompt: turn.prompt, answer: turn.answer })) }, provider, model: selectedModel }) });
+    const response = await fetch('/api/respond', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Chronicle-Request': '1' }, body: JSON.stringify({ ...context, state: { ...context.state, documents: [], conversations: undefined, turns: context.state.turns.filter(turn => turn.answer).slice(-8).map(turn => ({ id: turn.id, prompt: turn.prompt, answer: turn.answer, subject: turn.subject, selected: turn.selected ? { id: turn.selected.id } : null, applied: turn.applied, reviewedConflictId: turn.reviewedConflictId, conflicts: turn.conflicts?.map(group => ({ subject: group.subject, selected: group.selected ? { id: group.selected.id } : null, applied: group.applied })) })) }, provider, model: selectedModel }) });
     const data = await response.json(); if (!response.ok) throw new Error(data.error || 'The model request failed.'); return data;
   }
   const [replay, setReplay] = useState(null);
@@ -219,7 +219,7 @@ function App() {
   }
   const turns = expanded ? [replayTurn] : pendingTurn ? [...chatTurns.filter(turn => turn.id !== pendingTurn.id), pendingTurn] : chatTurns;
   const replayCycle = useMemo(() => completedReplayCycle(memory), [memory]);
-  const composerQuestion = !expanded && chatTurns.find(turn => turn.id === conflictQuestion?.id);
+  const composerQuestion = !expanded && conflictQuestion?.chatId === memory.activeChatId && findConflictTurn(memory, conflictQuestion.id);
 
   return <main className={`experience ${expanded ? 'is-replaying' : ''} ${returning ? 'is-returning' : ''}`}>
     <header className="masthead"><span className="wordmark">chronicle</span><div className="header-actions">{expanded && <button onClick={back} disabled={returning}>Back to terminal <span>↙</span></button>}<button onClick={useExample} disabled={busy || expanded || Boolean(composerQuestion)}>Use example memo</button><button className="reset" onClick={reset} disabled={busy} title="Start a fresh workspace; previous Atlas records are retained" aria-label="Reset demo">Reset demo</button></div></header>

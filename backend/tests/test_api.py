@@ -11,6 +11,23 @@ def make_client() -> TestClient:
     return TestClient(app)
 
 
+def test_rate_limit_is_actionable_without_exposing_provider_error_details() -> None:
+    class ProviderLimit(Exception):
+        http_status = 429
+
+    app = create_app(Settings(storage_mode="memory"))
+
+    @app.get('/api/ledger/test-rate-limit')
+    def limited():
+        raise ProviderLimit('private-provider-detail')
+
+    with TestClient(app) as client:
+        response = client.get('/api/ledger/test-rate-limit')
+    assert response.status_code == 429
+    assert 'Wait and retry' in response.json()['detail']
+    assert 'private-provider-detail' not in response.text
+
+
 def test_health_reports_explicit_memory_mode() -> None:
     with make_client() as client:
         response = client.get("/health")

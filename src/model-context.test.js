@@ -4,6 +4,20 @@ import { prepareModelContext, modelReceipt } from '../server/model-context.mjs';
 import { processPrompt, seedState } from './memory.js';
 import { buildReplaySteps, recordedModelTrace } from './replay-model.js';
 
+test('memory requests identify the current task and assertions separately from prior conversation', () => {
+  const state=seedState();
+  state.turns=[{id:'prior',prompt:'When is launch?',answer:'Monday'}];
+  const prompt='The acquisition budget is $20,000. Check this against project memory.';
+  const {content}=prepareModelContext({prompt,source:'Marketing',state,memoryReview:true});
+  const sent=JSON.parse(content);
+  assert.equal(sent.currentRequest.sourceRef,'prompt');
+  assert.equal(sent.memoryInput.sources.find(source=>source.ref===sent.currentRequest.sourceRef).text,prompt);
+  assert.equal(sent.memoryInput.reviewTargets[0].quote,'The acquisition budget is $20,000.');
+  assert.equal(sent.conversation[0].user,'When is launch?');
+  const transformed=JSON.parse(prepareModelContext({prompt:'Translate the memo into French.',source:'Marketing',state,memoryReview:true,attachments:[{text:'The budget is $20,000.'}]}).content);
+  assert.equal(transformed.currentRequest.kind,'translation'); assert.equal(transformed.currentRequest.sourceTask,true);
+});
+
 test('request receipt matches the actual serialized, capped provider context without credentials', () => {
   const state = { facts: Array.from({ length: 60 }, (_, i) => ({ id: `f${i}` })), notes: Array.from({ length: 25 }, (_, i) => ({ id: `n${i}` })), turns: Array.from({ length: 12 }, (_, i) => ({ id: `t${i}`, prompt: `question${i}`, answer: `answer${i}` })), policy: 2, lesson: { id: 'p1' } };
   const { content, receipt } = prepareModelContext({ prompt: 'Compare these dates.', source: 'Marketing', state, attachments: [{ name: 'memo.md', text: 'Friday 🗓' }], selected: { id: 'f59' }, apiKey: 'not-for-the-browser', headers: { Authorization: 'secret' }, baseUrl: 'private-url' });
@@ -54,4 +68,14 @@ test('structured model responses keep optional questions grounded in supplied ev
   assert.deepEqual(parseModelResponse('Hello!', null), { answer: 'Hello!', conflictQuestion: null });
   assert.equal(parseModelResponse(JSON.stringify({ answer: 'Hello!', conflictQuestion: null })).answer, 'Hello!');
   assert.throws(() => parseModelResponse('{"conflictQuestion":null}'), /no usable answer/);
+});
+
+test('document feedback is quote-grounded and cannot contradict the engine outcome', async () => {
+  const { validateReviewNotes } = await import('../server/model-response.mjs');
+  const context = { sources: [{ ref: 'attachment:0', text: 'We still need an owner for the shared inbox.' }], facts: [{subject:'budget',source:'Marketing',value:'$20,000'}] };
+  const valid = { sourceRef:'attachment:0', quote:'We still need an owner for the shared inbox.', comment:'Assign someone to monitor the shared inbox.' };
+  assert.deepEqual(validateReviewNotes([valid],context,{claims:[]}),[valid]);
+  assert.deepEqual(validateReviewNotes([{...valid,quote:'Invented evidence'}],context,{claims:[]}),[]);
+  assert.deepEqual(validateReviewNotes([{...valid,comment:'The budget does not conflict; both are $25,000.'}],context,{claims:[]}),[]);
+  assert.deepEqual(validateReviewNotes([{...valid,comment:'Use Marketing’s decision.'}],context,{claims:[]}),[]);
 });

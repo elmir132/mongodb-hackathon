@@ -1,5 +1,6 @@
 import logging
 import sys
+import traceback
 from pathlib import Path
 
 # Shared team modules live at the repository root.
@@ -85,8 +86,13 @@ def create_app(
             return JSONResponse({"detail": "Local same-origin access only."}, status_code=403)
         try:
             return await call_next(request)
-        except Exception:
+        except Exception as failure:
             # Driver/provider errors can contain credentials; never echo them.
+            frames = traceback.extract_tb(failure.__traceback__)
+            logger.error('Service failure: %s at %s', type(failure).__name__,
+                         ' > '.join(f'{Path(frame.filename).name}:{frame.lineno}' for frame in frames[-5:]))
+            if getattr(failure, 'http_status', None) == 429:
+                return JSONResponse({"detail": "An upstream service is rate-limiting requests. Wait and retry. No completion was confirmed."}, status_code=429)
             return JSONResponse({"detail": "Service request failed. Check server credentials, Atlas access, and the vector index. No completion was confirmed."}, status_code=503)
     return app
 

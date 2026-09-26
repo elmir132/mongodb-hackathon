@@ -1,6 +1,7 @@
 import { isDecisionTurn } from './decision-status.js';
 import { authorityScope, authorityLabel, findConflictTurn, canRememberAuthority, needsConflictReview, matchingConflictReview, fallbackConflictQuestion, validateConflictQuestion } from './conflict-review.js';
 import { materializeClaims, memoryEvidence, savedAnswerLookup, decisionSummary } from './memory-review.js';
+import { reviewTask } from '../server/review-task.mjs';
 // One orchestration path for persisted turns. The legacy parser remains an
 // explicit fallback; connected memory review proposes evidence, never decisions.
 export const STORAGE_KEY = 'chronicle.local-demo.v3';
@@ -142,9 +143,9 @@ export async function processPrompt(previous, prompt, source, persist, generate,
         modelResult = await generate({ prompt, source, author, state: { ...state, turns: state.turns.filter(turn => !chatId || turn.chatId === chatId) }, attachments, memoryReview: true });
         recordModel(event, modelResult);
         analysis = modelResult.memoryAnalysis || { status: 'unavailable', claims: [], relations: [], relevantFactIds: [] };
-        emit('extract', analysis.status === 'validated' ? 'Validate proposed claims and relationships' : 'Memory analysis unavailable',
-          analysis.status === 'validated' ? `${analysis.claims.length} source-backed claims; ${analysis.relations.length} checked relationships. Unsupported proposals were rejected.` : 'The model did not return usable structured evidence. No new claims or conflicts were inferred.',
-          { analysis: { status: analysis.status, rejected: analysis.rejected }, status: analysis.status === 'validated' ? 'succeeded' : 'unavailable' });
+        emit('extract', analysis.status === 'validated' ? 'Validate proposed claims and relationships' : 'Memory check incomplete',
+          `${analysis.claims.length} source-backed claims; ${analysis.relations.length} checked relationships. ${analysis.coverage?.omitted.length || 0} likely assertions not covered.`,
+          { analysis: { status: analysis.status, rejected: analysis.rejected, coverage: analysis.coverage }, status: analysis.status === 'validated' ? 'succeeded' : 'unavailable' });
         incoming = materializeClaims(analysis, { turnId, source, author, documents: newDocuments });
       }
     }
@@ -177,7 +178,7 @@ export async function processPrompt(previous, prompt, source, persist, generate,
     const inScope = candidates.length && candidates.every(fact => fact.scope === 'launch readiness');
     const previousReview = lookup?.review || (conflict && matchingConflictReview(state, candidates));
     savedReview = previousReview || null;
-    const previousDecision = [...previous.turns].reverse().find(turn => turn.subject === subject && turn.selected && (turn.correction || turn.reviewedConflictId || turn.applied));
+    const previousDecision = previous.turns.flatMap(turn => [turn, ...(turn.conflicts || [])]).reverse().find(turn => turn.subject === subject && turn.selected && (turn.correction || turn.reviewedConflictId || turn.applied));
     requiresConfirmation = Boolean(conflict && previousDecision && (explicitRevision(prompt) || evidenceGroups[0]?.revision)
       && incoming.some(fact => fact.subject === subject && claimValue(fact) !== claimValue(previousDecision.selected)));
     if (previousReview) {
@@ -219,7 +220,7 @@ export async function processPrompt(previous, prompt, source, persist, generate,
       }
       const choice = group.candidates.find(fact => fact.id === (reviewed?.selectedFactId || result?.resolution.selected_fact_id)) || null;
       const precedent = result?.resolution.applied_precedent_id || null;
-      const previousChoice = [...previous.turns].reverse().find(turn => turn.subject === group.subject && turn.selected && (turn.correction || turn.applied));
+      const previousChoice = previous.turns.flatMap(turn => [turn, ...(turn.conflicts || [])]).reverse().find(turn => turn.subject === group.subject && turn.selected && (turn.correction || turn.applied));
       const confirm = Boolean(previousChoice && (group.revision || explicitRevision(prompt)) && incoming.some(f => f.subject === group.subject && claimValue(f) !== claimValue(previousChoice.selected)));
       conflictRecords.push({ id: groupId, ...group, selected: choice, applied: precedent, requiresConfirmation: confirm,
         engineResolution: result?.resolution || null, policy: state.policy, lesson: state.lessons?.[precedent] || null,
@@ -242,8 +243,17 @@ export async function processPrompt(previous, prompt, source, persist, generate,
   }
   if (memoryReview && !conflictReview) {
     const summary = (conflict || savedReview) ? decisionSummary({ subject, candidates, selected, applied, policy: state.policy, requiresConfirmation, savedReview, engineResolution }) : '';
-    answer = [lookup ? '' : modelResult?.answer, summary].filter(Boolean).join('\n\n') || 'No saved answer is available.';
-    if (analysis.status === 'unavailable') answer += '\n\nMemory checking was unavailable for this reply; no new facts were saved.';
+    // The reviewer runs before resolution. Its free prose cannot overrule the
+    // engine or a human answer; memory findings always come from these records.
+    const comments = (modelResult?.reviewNotes || []).map(note => note.comment).join(' ');
+    const task = reviewTask(prompt, attachments);
+    const transformed = task.sourceTask && modelResult?.answer?.trim();
+    const prose = lookup ? '' : task.sourceTask ? (transformed ? `**${task.label}:**\n\n${transformed}` : 'The requested text could not be produced. Please try again.')
+      : (conflict || savedReview || task.kind === 'review') ? comments : modelResult?.answer;
+    const factual = !summary && candidates.length && selected && !attachments.length ? `Recorded ${subject}: **${selected.value}** (${sourceLabel(selected)}).` : '';
+    answer = (task.sourceTask ? [prose, summary] : [summary || factual, prose]).filter(Boolean).join('\n\n')
+      || (incoming.length ? 'I saved the source-backed project claims.' : analysis.status === 'unavailable' ? 'Your original message and documents are retained.' : attachments.length ? 'I reviewed the document; no supported memory conflict was detected in this check.' : 'No saved answer is available.');
+    if (analysis.status === 'unavailable' || analysis.status === 'partial') answer += `\n\n${analysis.coverage?.omitted.length ? 'Memory checking was incomplete: some possible claims were not validated.' : 'Memory checking was unavailable for this reply.'} ${incoming.length ? 'Only the validated claims were saved.' : 'No new facts were saved.'} Please retry the memory check.`;
     if (conflictRecords.length) answer += '\n\n' + conflictRecords.slice(1).map(group => decisionSummary({ ...group, savedReview: matchingConflictReview(state, group.candidates) })).join('\n\n');
   }
   emit('resolve', selected ? `Selected ${selected.value}` : reviewedTurn ? 'Left unresolved' : correction ? 'Lesson recorded' : conflict ? 'Human input needed' : 'Answer prepared', answer);
