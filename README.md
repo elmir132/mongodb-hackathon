@@ -1,7 +1,24 @@
 # Chronicle
 
-*Self-Healing Project Memory — Team 419*
+*Self-Healing Project Memory — Team 419, MongoDB Harness Engineering & Model Wrangling Hackathon (Sept 26, 2026)*
 
+Teams keep contradicting themselves: Engineering says the launch is Monday, Marketing's memo says Friday. Chronicle detects the conflict, resolves it with an evolving policy, and **learns from the human's correction** so the next similar conflict resolves itself. The Living Ledger shows the evidence behind every decision.
+
+**How it works**
+
+1. A new fact arrives and is checked against stored project memory (Voyage AI embeddings, MongoDB Atlas Vector Search).
+2. On a conflict, the engine first looks for an *applicable precedent* (same project, topic and subject, from an authoritative source). If none applies, it falls back to a weighted policy (source authority, then recency).
+3. A human correction is stored as a new precedent and a scoped, versioned policy update.
+
+**My part (Elmir): the resolution engine** in [`resolution-engine/`](resolution-engine/), about 560 lines of dependency-free Python with 19 tests. Design choice: retrieval similarity is evidence only, and applicability is decided deterministically in the engine, so an out-of-scope or cross-project precedent can never win just because it ranks first. I also wired the engine into the backend API and fixed the casing and subject-scope bugs that live integration surfaced.
+
+```sh
+python3 resolution-engine/test_resolution_engine.py
+```
+
+**Team:** Elmir Abdullaiev (resolution engine), Danny (retrieval), Sahil (backend and Atlas), Maxime (frontend). This is my fork of the team repo, kept for permanence. The working notes below are the team's.
+
+---
 Chronicle tracks shared project facts, resolves conflicts using an evolving policy, and learns from human corrections. The Living Ledger makes the evidence behind each decision visible.
 
 ## Source of truth
@@ -89,10 +106,6 @@ Real Codex generation, Atlas persistence, Voyage embeddings, project-filtered At
 - `vite.config.js`: localhost-only, same-origin model endpoints.
 
 Implementation references: [Codex non-interactive mode](https://learn.chatgpt.com/docs/non-interactive-mode), [Codex authentication](https://learn.chatgpt.com/docs/auth), [OpenAI text generation](https://developers.openai.com/api/docs/guides/text), [Claude model IDs](https://platform.claude.com/docs/en/models/overview).
-
-## Team
-
-Team 419: Elmir, Sahil, Maxime, and Danny. Full last names still need to be added before submission.
 
 ### Connected terminal services
 
